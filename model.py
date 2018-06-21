@@ -180,7 +180,7 @@ class StackGAN:
         with tf.Session(config = tf.ConfigProto(gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction = 0.9))) as sess:
             batch_size = 10
             num_of_imgs = 11788
-            num_epochs = 1000 #adjust if necessary
+            num_epochs = 1 #adjust if necessary
             sess.run(tf.global_variables_initializer(), options = run_opts)
             sess.run(tf.local_variables_initializer(), options = run_opts)
             print('Start Training::: ')
@@ -190,12 +190,16 @@ class StackGAN:
                 num_of_batches = int(num_of_imgs/batch_size)
                 for j in range(num_of_batches):
                     #Training the Generator.
+                    gLoss = 0
                     for k in range(10):
                         train_data = feeder.next_example()
                         train_image = train_data[0]
                         txt = train_data[1]
-                        gLoss, RRFC_gen, FR_gen, RRRC_gen, _ = sess.run([gen_loss, RRFC, FR, RRRC, trainer_gen], feed_dict = {text_input : [[txt]], r_image : train_image, lr : 1e-3},
+                        # print(train_image)
+                        # print(txt)
+                        g_loss, RRFC_gen, FR_gen, RRRC_gen, _ = sess.run([gen_loss, RRFC, FR, RRRC, trainer_gen], feed_dict = {text_input : [[txt]], r_image : train_image, lr : 3e-3},
                                                 options = run_opts)
+                        gLoss += g_loss
                     #Training the Discriminator.
                     for k in range(1):
                         train_data = feeder.curr_example()
@@ -207,10 +211,10 @@ class StackGAN:
                         dLoss, RRFC_dis, FR_dis, RRRC_dis, _ = sess.run([dis_loss, RRFC, FR, RRRC, trainer_dis], feed_dict = {text_input : feed_txt, r_image : train_image, lr : 1e-5},
                                                 options = run_opts)
 
-
-                    print('RRFC: '+ str(RRFC_gen))
-                    print('FR: ' + str(FR_gen) + ", " +str(FR_dis))
-                    print('RRRC: '+ str(RRRC_gen))
+                    gLoss /= 10
+                    # print('RRFC: '+ str(RRFC_gen))
+                    # print('FR: ' + str(FR_gen) + ", " +str(FR_dis))
+                    # print('RRRC: '+ str(RRRC_gen))
                     print('Discriminator Loss: ' + str(dLoss))
                     print('Generator Loss: ' + str(gLoss))
 
@@ -264,7 +268,7 @@ class StackGAN:
         init_embedding = enc.encode().predict(enc.tokenize(input_txt)) #Refer back to blog post if this doesn't work
 
         with tf.variable_scope('dis2', reuse = tf.AUTO_REUSE) as scope:
-            N, M = 16, 64 #Play around with these values. Likely, larger the value, more detail is retained but slower the training is
+            N, M = 16, 32 #Play around with these values. Likely, larger the value, more detail is retained but OOM Error may be thrown.
             W0 = tf.get_variable('w0', shape = (init_embedding.shape[1], M*M*N), dtype = tf.float32, initializer = tf.truncated_normal_initializer)
             B0 = tf.get_variable('b0', shape = (M*M*N,), dtype = tf.float32, initializer = tf.constant_initializer(0.0))
             Y0 = tf.nn.relu(tf.add(tf.matmul(init_embedding, W0), B0))
@@ -280,16 +284,19 @@ class StackGAN:
                     lst.append(i)
                 resized_img = tf.reshape(resized_img, shape = lst)
 
-            input_conv1 = tf.layers.conv2d(tf.to_float(resized_img), int(N/2), kernel_size = [5, 5], strides = [2, 2], padding = 'SAME', kernel_initializer = tf.truncated_normal_initializer(stddev = .02))
+            input_conv1 = tf.layers.conv2d(tf.to_float(resized_img), int(N/3), kernel_size = [5, 5], strides = [2, 2], padding = 'SAME', kernel_initializer = tf.truncated_normal_initializer(stddev = .02))
             input_bn1 = tf.contrib.layers.batch_norm(input_conv1, is_training = is_train, epsilon=1e-5, decay = 0.9, updates_collections=None)
             input_act1 = tf.nn.relu(input_bn1)
 
-            input_conv2 = tf.layers.conv2d(input_act1, N, kernel_size = [5, 5], strides = [2, 2], padding = 'SAME', kernel_initializer = tf.truncated_normal_initializer(stddev = .02))
+            input_conv2 = tf.layers.conv2d(input_act1, 2*int(N/3), kernel_size = [5, 5], strides = [2, 2], padding = 'SAME', kernel_initializer = tf.truncated_normal_initializer(stddev = .02))
             input_bn2 = tf.contrib.layers.batch_norm(input_conv2, is_training = is_train, epsilon=1e-5, decay = 0.9, updates_collections=None)
             input_act2 = tf.nn.relu(input_bn2)
 
+            input_conv3 = tf.layers.conv2d(input_act2, N, kernel_size = [5, 5], strides = [2, 2], padding = 'SAME', kernel_initializer = tf.truncated_normal_initializer(stddev = .02))
+            input_bn3 = tf.contrib.layers.batch_norm(input_conv3, is_training = is_train, epsilon=1e-5, decay = 0.9, updates_collections=None)
+            input_act3 = tf.nn.relu(input_bn3)
             #Concatenating img and text tensors, then preform convolutions
-            input_concat = tf.concat([mod_embedding, tf.squeeze(input_act2)], 2)
+            input_concat = tf.concat([mod_embedding, tf.squeeze(input_act3)], 2)
 
             lst = [1]
             lst.extend(input_concat.shape)
@@ -345,7 +352,7 @@ class StackGAN:
         real_image = 0
         run_opts = tf.RunOptions(report_tensor_allocations_upon_oom = True)
         try:
-            sess = tf.InteractiveSession()
+            sess = tf.InteractiveSession(config = tf.ConfigProto(gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction = 0.9)))
             t_i = text_input.eval()
             t_i = t_i[0][0]
             path = tf.read_file(r_image)
@@ -357,7 +364,7 @@ class StackGAN:
             t_i = 'seabird'
             path = 'data/LabelledBirds/images/001.Black_footed_Albatross/Black_Footed_Albatross_0001_796111.jpg'
             path = tf.read_file(path)
-            sess = tf.InteractiveSession()
+            sess = tf.InteractiveSession(config = tf.ConfigProto(gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction = 0.9)))
             img = tf.image.decode_jpeg(path, channels = 3)
             real_image = img.eval()
             sess.close()
@@ -386,10 +393,11 @@ class StackGAN:
         trainer_dis = tf.train.AdamOptimizer(learning_rate = lr).minimize(dis_loss, var_list = d_vars)
         trainer_gen = tf.train.AdamOptimizer(learning_rate = lr).minimize(gen_loss, var_list = g_vars)
 
-        with tf.Session() as sess:
+        #Train 2
+        with tf.Session(config = tf.ConfigProto(gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction = 0.9))) as sess:
             batch_size = 10
             num_of_imgs = 11788
-            num_epochs = 0 #adjust if necessary
+            num_epochs = 1 #adjust if necessary
             sess.run(tf.global_variables_initializer(), options = run_opts)
             sess.run(tf.local_variables_initializer(), options = run_opts)
 
@@ -398,19 +406,19 @@ class StackGAN:
                 print(str(i) + 'th epoch: ')
                 feeder = pr.FeedExamples()
                 for j in range(int(num_of_imgs/batch_size)):
-                    noise_vecs = np.random.uniform(-1.0, 1.0, size = (batch_size, input_dim))
+                    #noise_vecs = np.random.uniform(-1.0, 1.0, size = (batch_size, input_dim))
 
                     #Training the Generator.
                     for k in range(10):
-                        train_data = feeder.curr_example()
+                        train_data = feeder.next_example()
                         train_image = train_data[0]
                         txt = train_data[1]
                         gLoss, _ = sess.run([gen_loss, trainer_gen],
-                                            feed_dict = {text_input : tf.constant([[txt]]), r_image : train_image, lr : 1e-3},
+                                            feed_dict = {text_input : tf.constant([[txt]]), r_image : train_image, lr : 1e-4},
                                                          options = run_opts)
                     #Training the Discriminator.
                     for k in range(1):
-                        train_data = feeder.next_example()
+                        train_data = feeder.curr_example()
                         train_image = train_data[0]
                         txt = train_data[1]
                         dLoss, _ = sess.run([dis_loss, trainer_dis],
