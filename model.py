@@ -2,6 +2,7 @@ import numpy as np
 import tensorflow as tf
 import encoder as enc
 import preprocessing as pr
+from cv2 import imwrite
 
 class StackGAN:
     def __init__(self, output_dim):
@@ -12,7 +13,7 @@ class StackGAN:
         cond_vec = enc.encode().predict(enc.tokenize(text_input))
         noise_vec = tf.random_normal(cond_vec.shape)
         input = tf.concat([noise_vec, cond_vec], 1)
-        with tf.variable_scope('gen1') as scope:
+        with tf.variable_scope('gen1', reuse = tf.AUTO_REUSE) as scope:
             W1 = tf.get_variable('gen1', shape = (input.shape[1].value, 4*4*self.output_dim), dtype = tf.float32, initializer = tf.truncated_normal_initializer)
             B1 = tf.get_variable('gen2', shape = (4*4*self.output_dim), dtype = tf.float32, initializer = tf.constant_initializer(0.0))
             Y1 = tf.add(tf.matmul(input, W1), B1)
@@ -169,8 +170,8 @@ class StackGAN:
 
         #Creates lists of the discriminator and generator variables that will be trained
         t_vars = tf.trainable_variables()
-        d_vars = [var for var in t_vars if 'dis1' in var.name]
-        g_vars = [var for var in t_vars if 'gen1' in var.name]
+        d_vars = [var for var in t_vars if 'dis1/' in var.name]
+        g_vars = [var for var in t_vars if 'gen1/' in var.name]
         print(len(d_vars))
         print(len(g_vars))
 
@@ -181,8 +182,7 @@ class StackGAN:
             batch_size = 10
             num_of_imgs = 11788
             num_epochs = 1 #adjust if necessary
-            sess.run(tf.global_variables_initializer(), options = run_opts)
-            sess.run(tf.local_variables_initializer(), options = run_opts)
+            sess.run(tf.initialize_all_variables(), options = run_opts)
             print('Start Training::: ')
             for i in range(num_epochs):
                 print(str(i) + 'th epoch: ')
@@ -223,8 +223,8 @@ class StackGAN:
     def generator_2(self, text_input, is_train = True):
         #Upsample text embedding
         init_embedding = enc.encode().predict(enc.tokenize(text_input))
-        N, M = 75, 32 #Play around with these values. Likely, larger the value, more detail is retained but slower the training is
-        with tf.variable_scope('gen2') as scope:
+        N, M = 32, 16 #Play around with these values. Likely, larger the value, more detail is retained but slower the training is
+        with tf.variable_scope('gen2', reuse = tf.AUTO_REUSE) as scope:
             W0 = tf.get_variable('w0', shape = (init_embedding.shape[1], M*M*N), dtype = tf.float32, initializer = tf.truncated_normal_initializer)
             B0 = tf.get_variable('b0', shape = (M*M*N,), dtype = tf.float32, initializer = tf.constant_initializer(0.0))
             Y0 = tf.nn.relu(tf.add(tf.matmul(init_embedding, W0), B0))
@@ -242,7 +242,11 @@ class StackGAN:
             input_bn1 = tf.contrib.layers.batch_norm(input_conv1, is_training = is_train, epsilon=1e-5, decay = 0.9, updates_collections=None)
             input_act1 = tf.nn.relu(input_bn1)
 
-            conv_input = tf.concat([mod_embedding, tf.squeeze(input_act1)], 2)
+            input_conv2 = tf.layers.conv2d(input_act1, N, kernel_size = [5, 5], strides = [2, 2], padding = 'SAME', kernel_initializer = tf.truncated_normal_initializer(stddev = .02))
+            input_bn2 = tf.contrib.layers.batch_norm(input_conv2, is_training = is_train, epsilon=1e-5, decay = 0.9, updates_collections=None)
+            input_act2 = tf.nn.relu(input_bn2)
+
+            conv_input = tf.concat([mod_embedding, tf.squeeze(input_act2)], 2)
 
             lst = [1]
             lst.extend(conv_input.shape)
@@ -252,23 +256,27 @@ class StackGAN:
             bn1 = tf.contrib.layers.batch_norm(conv1, is_training = is_train, epsilon = 1e-5, decay = 0.9, updates_collections = None)
             act1 = tf.nn.relu(bn1)
 
-            conv2 = tf.layers.conv2d_transpose(act1, 30, kernel_size = [5, 5], strides = [2, 2], padding = 'SAME', kernel_initializer = tf.truncated_normal_initializer(stddev = 0.5)) #Add filters,
+            conv2 = tf.layers.conv2d_transpose(act1, 40, kernel_size = [5, 5], strides = [2, 2], padding = 'SAME', kernel_initializer = tf.truncated_normal_initializer(stddev = 0.5)) #Add filters,
             bn2 = tf.contrib.layers.batch_norm(conv2, is_training = is_train, epsilon = 1e-5, decay = 0.9, updates_collections = None)
             act2 = tf.nn.relu(bn2)
 
-            conv3 = tf.layers.conv2d_transpose(act2, 3, kernel_size = [5, 5], strides = [2, 2], padding = 'SAME', kernel_initializer = tf.truncated_normal_initializer(stddev = 0.5)) #Add filters,
+            conv3 = tf.layers.conv2d_transpose(act2, 20, kernel_size = [5, 5], strides = [2, 2], padding = 'SAME', kernel_initializer = tf.truncated_normal_initializer(stddev = 0.5)) #Add filters,
             bn3 = tf.contrib.layers.batch_norm(conv3, is_training = is_train, epsilon = 1e-5, decay = 0.9, updates_collections = None)
             act3 = tf.nn.relu(bn3)
 
-            return act3
+            conv4 = tf.layers.conv2d_transpose(act3, 3, kernel_size = [5, 5], strides = [2, 2], padding = 'SAME', kernel_initializer = tf.truncated_normal_initializer(stddev = 0.5)) #Add filters,
+            bn4 = tf.contrib.layers.batch_norm(conv4, is_training = is_train, epsilon = 1e-5, decay = 0.9, updates_collections = None)
+            act4 = tf.nn.relu(bn4)
+
+            return act4
 
     def discriminator_2(self, input_img, input_txt, is_train = True):
-        output_dim = 1
 
+        output_dim = 1
         init_embedding = enc.encode().predict(enc.tokenize(input_txt)) #Refer back to blog post if this doesn't work
 
         with tf.variable_scope('dis2', reuse = tf.AUTO_REUSE) as scope:
-            N, M = 16, 32 #Play around with these values. Likely, larger the value, more detail is retained but OOM Error may be thrown.
+            N, M = 16, 16 #Play around with these values. Likely, larger the value, more detail is retained but OOM Error may be thrown.
             W0 = tf.get_variable('w0', shape = (init_embedding.shape[1], M*M*N), dtype = tf.float32, initializer = tf.truncated_normal_initializer)
             B0 = tf.get_variable('b0', shape = (M*M*N,), dtype = tf.float32, initializer = tf.constant_initializer(0.0))
             Y0 = tf.nn.relu(tf.add(tf.matmul(init_embedding, W0), B0))
@@ -284,19 +292,23 @@ class StackGAN:
                     lst.append(i)
                 resized_img = tf.reshape(resized_img, shape = lst)
 
-            input_conv1 = tf.layers.conv2d(tf.to_float(resized_img), int(N/3), kernel_size = [5, 5], strides = [2, 2], padding = 'SAME', kernel_initializer = tf.truncated_normal_initializer(stddev = .02))
+            input_conv1 = tf.layers.conv2d(tf.to_float(resized_img), int(N/4), kernel_size = [5, 5], strides = [2, 2], padding = 'SAME', kernel_initializer = tf.truncated_normal_initializer(stddev = .02))
             input_bn1 = tf.contrib.layers.batch_norm(input_conv1, is_training = is_train, epsilon=1e-5, decay = 0.9, updates_collections=None)
             input_act1 = tf.nn.relu(input_bn1)
 
-            input_conv2 = tf.layers.conv2d(input_act1, 2*int(N/3), kernel_size = [5, 5], strides = [2, 2], padding = 'SAME', kernel_initializer = tf.truncated_normal_initializer(stddev = .02))
+            input_conv2 = tf.layers.conv2d(input_act1, int(N/2), kernel_size = [5, 5], strides = [2, 2], padding = 'SAME', kernel_initializer = tf.truncated_normal_initializer(stddev = .02))
             input_bn2 = tf.contrib.layers.batch_norm(input_conv2, is_training = is_train, epsilon=1e-5, decay = 0.9, updates_collections=None)
             input_act2 = tf.nn.relu(input_bn2)
 
-            input_conv3 = tf.layers.conv2d(input_act2, N, kernel_size = [5, 5], strides = [2, 2], padding = 'SAME', kernel_initializer = tf.truncated_normal_initializer(stddev = .02))
+            input_conv3 = tf.layers.conv2d(input_act2, 3*int(N/4), kernel_size = [5, 5], strides = [2, 2], padding = 'SAME', kernel_initializer = tf.truncated_normal_initializer(stddev = .02))
             input_bn3 = tf.contrib.layers.batch_norm(input_conv3, is_training = is_train, epsilon=1e-5, decay = 0.9, updates_collections=None)
             input_act3 = tf.nn.relu(input_bn3)
+
+            input_conv4 = tf.layers.conv2d(input_act3, N, kernel_size = [5, 5], strides = [2, 2], padding = 'SAME', kernel_initializer = tf.truncated_normal_initializer(stddev = .02))
+            input_bn4 = tf.contrib.layers.batch_norm(input_conv4, is_training = is_train, epsilon=1e-5, decay = 0.9, updates_collections=None)
+            input_act4 = tf.nn.relu(input_bn4)
             #Concatenating img and text tensors, then preform convolutions
-            input_concat = tf.concat([mod_embedding, tf.squeeze(input_act3)], 2)
+            input_concat = tf.concat([mod_embedding, tf.squeeze(input_act4)], 2)
 
             lst = [1]
             lst.extend(input_concat.shape)
@@ -387,8 +399,8 @@ class StackGAN:
         gen_loss = -tf.reduce_mean(fake_result)
 
         t_vars = tf.trainable_variables()
-        d_vars = [var for var in t_vars if 'dis2' in var.name]
-        g_vars = [var for var in t_vars if 'gen2' in var.name]
+        d_vars = [var for var in t_vars if 'dis2/' in var.name]
+        g_vars = [var for var in t_vars if 'gen2/' in var.name]
 
         trainer_dis = tf.train.AdamOptimizer(learning_rate = lr).minimize(dis_loss, var_list = d_vars)
         trainer_gen = tf.train.AdamOptimizer(learning_rate = lr).minimize(gen_loss, var_list = g_vars)
@@ -398,42 +410,76 @@ class StackGAN:
             batch_size = 10
             num_of_imgs = 11788
             num_epochs = 1 #adjust if necessary
-            sess.run(tf.global_variables_initializer(), options = run_opts)
-            sess.run(tf.local_variables_initializer(), options = run_opts)
-
+            sess.run(tf.initialize_all_variables(), options = run_opts)
             print('Start Training:::')
             for i in range(num_epochs):
                 print(str(i) + 'th epoch: ')
                 feeder = pr.FeedExamples()
                 for j in range(int(num_of_imgs/batch_size)):
                     #noise_vecs = np.random.uniform(-1.0, 1.0, size = (batch_size, input_dim))
-
+                    gLoss = 0
                     #Training the Generator.
                     for k in range(10):
                         train_data = feeder.next_example()
                         train_image = train_data[0]
                         txt = train_data[1]
-                        gLoss, _ = sess.run([gen_loss, trainer_gen],
-                                            feed_dict = {text_input : tf.constant([[txt]]), r_image : train_image, lr : 1e-4},
+                        g_loss, RRFC_gen, FR_gen, RRRC_gen, _ = sess.run([gen_loss, RRFC, FR, RRRC, trainer_gen],
+                                            feed_dict = {text_input : [[txt]], r_image : train_image, lr : 3e-3},
                                                          options = run_opts)
+                        gLoss += g_loss
                     #Training the Discriminator.
                     for k in range(1):
                         train_data = feeder.curr_example()
                         train_image = train_data[0]
                         txt = train_data[1]
-                        dLoss, _ = sess.run([dis_loss, trainer_dis],
+                        dLoss, FR_dis, _ = sess.run([dis_loss, FR, trainer_dis],
                                             feed_dict = {text_input : [[txt]], r_image : train_image, lr: 1e-5},
                                             options = run_opts)
 
+                    gLoss /= 10
 
-                print('RRFC: '+ str(RRFC_gen))
-                print('FR: ' + str(FR_gen) + ", " +str(FR_dis))
-                print('RRRC: '+ str(RRRC_gen))
-                print('Discriminator Loss: ' + str(dLoss))
-                print('Generator Loss: ' + str(gLoss))
+                    # print('RRFC: '+ str(RRFC_gen))
+                    # print('FR: ' + str(FR_gen) + ", " +str(FR_dis))
+                    # print('RRRC: '+ str(RRRC_gen))
+                    print('Discriminator Loss: ' + str(dLoss))
+                    print('Generator Loss: ' + str(gLoss))
+
+    #Need this function because OpenCV decodes in BGR order, not RGB
+    def flip_channel_order(self, np_img):
+        img_dim = 256
+        one = np.zeros(shape = (img_dim, img_dim, 1))
+        two = np.zeros(shape = (img_dim, img_dim, 1))
+        three = np.zeros(shape = (img_dim, img_dim, 1))
+        for i in range(img_dim):
+            for j in range(img_dim):
+                for k in range(3):
+                    if k == 0:
+                        one[i][j][0] = np_img[i][j][k]
+                    if k == 1:
+                        two[i][j][0] = np_img[i][j][k]
+                    if k == 2:
+                        three[i][j][0] = np_img[i][j][k]
+        a = tf.constant(one, dtype = tf.uint8)
+        b = tf.constant(two, dtype = tf.uint8)
+        c = tf.constant(three, dtype = tf.uint8)
+        tf_img = tf.concat([three, two, one], axis = 2)
+        sess = tf.InteractiveSession()
+        np_img1 = tf_img.eval()
+        sess.close()
+        return np_img1
+
 
     def predict(self, input_text):
-        return tf.image.encode_jpeg(generator_2(input_text))
+        with tf.Session() as sess:
+            sess.run(tf.initialize_all_variables())
+            tensor_img = tf.squeeze(tf.cast(self.generator_2(input_text, is_train = False), dtype = tf.uint8))
+            np_img = tensor_img.eval()
+            imwrite("output_image.jpg", self.flip_channel_order(np_img))
+        
 
     def predict_lowres(self, input_text):
-        return tf.image.encode_jpeg(generator_1(input_text))
+        with tf.Session() as sess:
+            sess.run(tf.initialize_all_variables())
+            tensor_img = tf.squeeze(tf.cast(self.generator_1(input_text, is_train = False), dtype = tf.uint8))
+            np_img = tensor_img.eval()
+            imwrite("output_image.jpg", flip_channel_order(np_img))
