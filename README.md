@@ -1,6 +1,6 @@
 # Text2Image
 
-This project uses the StackGAN Architecture, as described in the linked paper, to create a model which given a text input can generate a 256x256 image. 
+This project uses the StackGAN Architecture, as described in the linked paper, to create a model which given a text input can generate a 256x256 image. My model differs in that I did not use a variational autoencoder, rather a regular autoencoder, as I found this sped up training significantly. Also, due to the limitations of the Tensorflow Machine Learning Library, I had to use a few extra downsampling convolutional layers to avoid ResourceExhaustedErrors. 
 
 I used the Tensorflow, Keras, and Numpy libraries for Python to implement this model, and I trained my model using the Caltech/UCSD Birds Dataset. My model can be generalized to generate images other than birds by instead using the MS COCO dataset.  
 
