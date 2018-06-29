@@ -3,17 +3,22 @@ import tensorflow as tf
 import encoder as enc
 import preprocessing as pr
 from cv2 import imwrite
+from tensorflow.python.framework import ops
+
 
 class StackGAN:
     def __init__(self, output_dim):
+        #self.model_session = tf.Session(config = tf.ConfigProto(gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction = 0.9)))
         self.output_dim = output_dim #Assumes we are attempting to generate a square image
         self.caption_arr = pr.construct_caption_arr(pr.num_to_attr('data/LabelledBirds/attributes/attributes.txt'), 'data/LabelledBirds/attributes/image_attribute_labels.txt')
+        self.stage_1_vars = []
     #Stage 1 GAN
     def generator_1(self, text_input, is_train = True):
-        cond_vec = enc.encode().predict(enc.tokenize(text_input))
-        noise_vec = tf.random_normal(cond_vec.shape)
-        input = tf.concat([noise_vec, cond_vec], 1)
         with tf.variable_scope('gen1', reuse = tf.AUTO_REUSE) as scope:
+            cond_vec = enc.encode().predict(enc.tokenize(text_input))
+            noise_vec = tf.random_normal(cond_vec.shape)
+            input = tf.concat([noise_vec, cond_vec], 1)
+
             W1 = tf.get_variable('gen1', shape = (input.shape[1].value, 4*4*self.output_dim), dtype = tf.float32, initializer = tf.truncated_normal_initializer)
             B1 = tf.get_variable('gen2', shape = (4*4*self.output_dim), dtype = tf.float32, initializer = tf.constant_initializer(0.0))
             Y1 = tf.add(tf.matmul(input, W1), B1)
@@ -45,12 +50,13 @@ class StackGAN:
 
     #Input is your image. Discriminator is only used during training, so you add the input when training
     def discriminator_1(self, input_img, input_txt, is_train = True):
-        output_dim = 1
-        init_embedding = enc.encode().predict(enc.tokenize(input_txt))
         #Shrink to lower dimension
         with tf.variable_scope('dis1', reuse = tf.AUTO_REUSE) as scope:
             #Reshape/Resize Text Embedding
+            output_dim = 1
+            init_embedding = enc.encode().predict(enc.tokenize(input_txt))
             N, M = 16, 32 #Play around with these values. Likely, larger the value, more detail is retained but slower the training is
+
             W0 = tf.get_variable('dis11', shape = (init_embedding.shape[1], M*M*N), dtype = tf.float32, initializer = tf.truncated_normal_initializer)
             B0 = tf.get_variable('dis2', shape = (M*M*N,), dtype = tf.float32, initializer = tf.constant_initializer(0.0))
             Y0 = tf.nn.relu(tf.add(tf.matmul(init_embedding, W0), B0))
@@ -112,13 +118,8 @@ class StackGAN:
 
 
     def train_1(self):
-        #print(enc.encode())
-        #print(enc.encode().predict(enc.tokenize('hooked')))
-    #    with tf.device('/cpu:0'):
-        real_image_size = 64
-            #graph1 = tf.Graph()
 
-        # with graph1.as_default():
+        real_image_size = 64
         text_input = tf.placeholder(dtype = tf.string)
         r_image = tf.placeholder(dtype = tf.string)
         lr = tf.placeholder(dtype = tf.float32)
@@ -175,14 +176,18 @@ class StackGAN:
         print(len(d_vars))
         print(len(g_vars))
 
-        trainer_gen = tf.train.AdamOptimizer(learning_rate = lr).minimize(gen_loss, var_list = g_vars)
-        trainer_dis = tf.train.AdamOptimizer(learning_rate = lr).minimize(dis_loss, var_list = d_vars)
+        with tf.variable_scope('gan1', reuse = tf.AUTO_REUSE):
+            trainer_gen = tf.train.AdamOptimizer(learning_rate = lr, name = 'stage1gen').minimize(gen_loss, var_list = g_vars)
+            trainer_dis = tf.train.AdamOptimizer(learning_rate = lr, name = 'stage1dis').minimize(dis_loss, var_list = d_vars)
 
-        with tf.Session(config = tf.ConfigProto(gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction = 0.9))) as sess:
+        with tf.Session() as sess:
             batch_size = 10
             num_of_imgs = 11788
             num_epochs = 1 #adjust if necessary
-            sess.run(tf.initialize_all_variables(), options = run_opts)
+
+            sess.run(tf.local_variables_initializer(), options = run_opts)
+            sess.run(tf.global_variables_initializer(), options = run_opts)
+
             print('Start Training::: ')
             for i in range(num_epochs):
                 print(str(i) + 'th epoch: ')
@@ -217,14 +222,28 @@ class StackGAN:
                     # print('RRRC: '+ str(RRRC_gen))
                     print('Discriminator Loss: ' + str(dLoss))
                     print('Generator Loss: ' + str(gLoss))
+            self.stage_1_vars = ['embedding_1/embeddings:0', 'gen1/gen1:0', 'gen1/gen2:0', 'gen1/gen3/kernel:0', 'gen1/gen3/bias:0', 'gen1/BatchNorm/beta:0', 'gen1/BatchNorm/moving_mean:0', 'gen1/BatchNorm/moving_variance:0', 'gen1/gen4/kernel:0', 'gen1/gen4/bias:0', 'gen1/BatchNorm_1/beta:0', 'gen1/BatchNorm_1/moving_mean:0', 'gen1/BatchNorm_1/moving_variance:0', 'gen1/gen5/kernel:0', 'gen1/gen5/bias:0', 'gen1/BatchNorm_2/beta:0', 'gen1/BatchNorm_2/moving_mean:0', 'gen1/BatchNorm_2/moving_variance:0', 'gen1/gen6/kernel:0', 'gen1/gen6/bias:0', 'gen1/BatchNorm_3/beta:0', 'gen1/BatchNorm_3/moving_mean:0', 'gen1/BatchNorm_3/moving_variance:0', 'embedding_2/embeddings:0', 'dis1/dis11:0', 'dis1/dis2:0', 'dis1/dis3/kernel:0', 'dis1/dis3/bias:0', 'dis1/BatchNorm/beta:0', 'dis1/BatchNorm/moving_mean:0', 'dis1/BatchNorm/moving_variance:0', 'dis1/conv1dis4/kernel:0', 'dis1/conv1dis4/bias:0', 'dis1/BatchNorm_1/beta:0', 'dis1/BatchNorm_1/moving_mean:0', 'dis1/BatchNorm_1/moving_variance:0', 'dis1/conv2dis5/kernel:0', 'dis1/conv2dis5/bias:0', 'dis1/BatchNorm_2/beta:0', 'dis1/BatchNorm_2/moving_mean:0', 'dis1/BatchNorm_2/moving_variance:0', 'dis1/conv3dis6/kernel:0', 'dis1/conv3dis6/bias:0', 'dis1/BatchNorm_3/beta:0', 'dis1/BatchNorm_3/moving_mean:0', 'dis1/BatchNorm_3/moving_variance:0', 'dis1/conv4dis7/kernel:0', 'dis1/conv4dis7/bias:0', 'dis1/BatchNorm_4/beta:0', 'dis1/BatchNorm_4/moving_mean:0', 'dis1/BatchNorm_4/moving_variance:0', 'dis1/dis7:0', 'dis1/dis8:0', 'dis1/dis9:0', 'dis1/dis10:0', 'embedding_3/embeddings:0', 'embedding_4/embeddings:0', 'beta1_power:0', 'beta2_power:0', 'gen1/gen1/Adam:0', 'gen1/gen1/Adam_1:0', 'gen1/gen2/Adam:0', 'gen1/gen2/Adam_1:0', 'gen1/gen3/kernel/Adam:0', 'gen1/gen3/kernel/Adam_1:0', 'gen1/gen3/bias/Adam:0', 'gen1/gen3/bias/Adam_1:0', 'gen1/gen4/kernel/Adam:0', 'gen1/gen4/kernel/Adam_1:0', 'gen1/gen4/bias/Adam:0', 'gen1/gen4/bias/Adam_1:0', 'gen1/gen5/kernel/Adam:0', 'gen1/gen5/kernel/Adam_1:0', 'gen1/gen5/bias/Adam:0', 'gen1/gen5/bias/Adam_1:0', 'gen1/gen6/kernel/Adam:0', 'gen1/gen6/kernel/Adam_1:0', 'gen1/gen6/bias/Adam:0', 'gen1/gen6/bias/Adam_1:0', 'gen1/BatchNorm_3/beta/Adam:0', 'gen1/BatchNorm_3/beta/Adam_1:0', 'beta1_power_1:0', 'beta2_power_1:0', 'dis1/dis11/Adam:0', 'dis1/dis11/Adam_1:0', 'dis1/dis2/Adam:0', 'dis1/dis2/Adam_1:0', 'dis1/dis3/kernel/Adam:0', 'dis1/dis3/kernel/Adam_1:0', 'dis1/dis3/bias/Adam:0', 'dis1/dis3/bias/Adam_1:0', 'dis1/BatchNorm/beta/Adam:0', 'dis1/BatchNorm/beta/Adam_1:0', 'dis1/conv1dis4/kernel/Adam:0', 'dis1/conv1dis4/kernel/Adam_1:0', 'dis1/conv1dis4/bias/Adam:0', 'dis1/conv1dis4/bias/Adam_1:0', 'dis1/BatchNorm_1/beta/Adam:0', 'dis1/BatchNorm_1/beta/Adam_1:0', 'dis1/conv2dis5/kernel/Adam:0', 'dis1/conv2dis5/kernel/Adam_1:0', 'dis1/conv2dis5/bias/Adam:0', 'dis1/conv2dis5/bias/Adam_1:0', 'dis1/BatchNorm_2/beta/Adam:0', 'dis1/BatchNorm_2/beta/Adam_1:0', 'dis1/conv3dis6/kernel/Adam:0', 'dis1/conv3dis6/kernel/Adam_1:0', 'dis1/conv3dis6/bias/Adam:0', 'dis1/conv3dis6/bias/Adam_1:0', 'dis1/BatchNorm_3/beta/Adam:0', 'dis1/BatchNorm_3/beta/Adam_1:0', 'dis1/conv4dis7/kernel/Adam:0', 'dis1/conv4dis7/kernel/Adam_1:0', 'dis1/conv4dis7/bias/Adam:0', 'dis1/conv4dis7/bias/Adam_1:0', 'dis1/BatchNorm_4/beta/Adam:0', 'dis1/BatchNorm_4/beta/Adam_1:0', 'dis1/dis7/Adam:0', 'dis1/dis7/Adam_1:0', 'dis1/dis8/Adam:0', 'dis1/dis8/Adam_1:0', 'dis1/dis9/Adam:0', 'dis1/dis9/Adam_1:0', 'dis1/dis10/Adam:0', 'dis1/dis10/Adam_1:0']
+            #print(list(ops.GraphKeys.GLOBAL_VARIABLES))
+            save_vars = []
+            for var in ops.get_collection(ops.GraphKeys.GLOBAL_VARIABLES):
+                if var.name in self.stage_1_vars:
+                    save_vars.append(var)
+
+            saver = tf.train.Saver()
+            #saver = tf.train.Saver(var_list = save_vars)
+            saver.save(sess, "./ckpts/model.ckpt")
+
+
 
     #Stage 2 GAN
 
     def generator_2(self, text_input, is_train = True):
         #Upsample text embedding
-        init_embedding = enc.encode().predict(enc.tokenize(text_input))
-        N, M = 32, 16 #Play around with these values. Likely, larger the value, more detail is retained but slower the training is
+        #Play around with these values. Likely, larger the value, more detail is retained but slower the training is
         with tf.variable_scope('gen2', reuse = tf.AUTO_REUSE) as scope:
+            init_embedding = enc.encode().predict(enc.tokenize(text_input))
+            N, M = 32, 16
+
             W0 = tf.get_variable('w0', shape = (init_embedding.shape[1], M*M*N), dtype = tf.float32, initializer = tf.truncated_normal_initializer)
             B0 = tf.get_variable('b0', shape = (M*M*N,), dtype = tf.float32, initializer = tf.constant_initializer(0.0))
             Y0 = tf.nn.relu(tf.add(tf.matmul(init_embedding, W0), B0))
@@ -272,10 +291,11 @@ class StackGAN:
 
     def discriminator_2(self, input_img, input_txt, is_train = True):
 
-        output_dim = 1
-        init_embedding = enc.encode().predict(enc.tokenize(input_txt)) #Refer back to blog post if this doesn't work
+
 
         with tf.variable_scope('dis2', reuse = tf.AUTO_REUSE) as scope:
+            output_dim = 1
+            init_embedding = enc.encode().predict(enc.tokenize(input_txt)) #Refer back to blog post if this doesn't work
             N, M = 16, 16 #Play around with these values. Likely, larger the value, more detail is retained but OOM Error may be thrown.
             W0 = tf.get_variable('w0', shape = (init_embedding.shape[1], M*M*N), dtype = tf.float32, initializer = tf.truncated_normal_initializer)
             B0 = tf.get_variable('b0', shape = (M*M*N,), dtype = tf.float32, initializer = tf.constant_initializer(0.0))
@@ -402,15 +422,35 @@ class StackGAN:
         d_vars = [var for var in t_vars if 'dis2/' in var.name]
         g_vars = [var for var in t_vars if 'gen2/' in var.name]
 
-        trainer_dis = tf.train.AdamOptimizer(learning_rate = lr).minimize(dis_loss, var_list = d_vars)
-        trainer_gen = tf.train.AdamOptimizer(learning_rate = lr).minimize(gen_loss, var_list = g_vars)
+        with tf.variable_scope('gan2', reuse = tf.AUTO_REUSE):
+            trainer_dis = tf.train.AdamOptimizer(learning_rate = lr).minimize(dis_loss, var_list = d_vars)
+            trainer_gen = tf.train.AdamOptimizer(learning_rate = lr).minimize(gen_loss, var_list = g_vars)
 
         #Train 2
-        with tf.Session(config = tf.ConfigProto(gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction = 0.9))) as sess:
+        with tf.Session() as sess:
             batch_size = 10
             num_of_imgs = 11788
             num_epochs = 1 #adjust if necessary
-            sess.run(tf.initialize_all_variables(), options = run_opts)
+            saver = tf.train.import_meta_graph('ckpts/model.ckpt.meta')
+            saver.restore(sess, tf.train.latest_checkpoint('ckpts'))
+            global_vars = ops.get_collection(ops.GraphKeys.GLOBAL_VARIABLES)
+            self.stage_1_vars = ['embedding_1/embeddings:0', 'gen1/gen1:0', 'gen1/gen2:0', 'gen1/gen3/kernel:0', 'gen1/gen3/bias:0', 'gen1/BatchNorm/beta:0', 'gen1/BatchNorm/moving_mean:0', 'gen1/BatchNorm/moving_variance:0', 'gen1/gen4/kernel:0', 'gen1/gen4/bias:0', 'gen1/BatchNorm_1/beta:0', 'gen1/BatchNorm_1/moving_mean:0', 'gen1/BatchNorm_1/moving_variance:0', 'gen1/gen5/kernel:0', 'gen1/gen5/bias:0', 'gen1/BatchNorm_2/beta:0', 'gen1/BatchNorm_2/moving_mean:0', 'gen1/BatchNorm_2/moving_variance:0', 'gen1/gen6/kernel:0', 'gen1/gen6/bias:0', 'gen1/BatchNorm_3/beta:0', 'gen1/BatchNorm_3/moving_mean:0', 'gen1/BatchNorm_3/moving_variance:0', 'embedding_2/embeddings:0', 'dis1/dis11:0', 'dis1/dis2:0', 'dis1/dis3/kernel:0', 'dis1/dis3/bias:0', 'dis1/BatchNorm/beta:0', 'dis1/BatchNorm/moving_mean:0', 'dis1/BatchNorm/moving_variance:0', 'dis1/conv1dis4/kernel:0', 'dis1/conv1dis4/bias:0', 'dis1/BatchNorm_1/beta:0', 'dis1/BatchNorm_1/moving_mean:0', 'dis1/BatchNorm_1/moving_variance:0', 'dis1/conv2dis5/kernel:0', 'dis1/conv2dis5/bias:0', 'dis1/BatchNorm_2/beta:0', 'dis1/BatchNorm_2/moving_mean:0', 'dis1/BatchNorm_2/moving_variance:0', 'dis1/conv3dis6/kernel:0', 'dis1/conv3dis6/bias:0', 'dis1/BatchNorm_3/beta:0', 'dis1/BatchNorm_3/moving_mean:0', 'dis1/BatchNorm_3/moving_variance:0', 'dis1/conv4dis7/kernel:0', 'dis1/conv4dis7/bias:0', 'dis1/BatchNorm_4/beta:0', 'dis1/BatchNorm_4/moving_mean:0', 'dis1/BatchNorm_4/moving_variance:0', 'dis1/dis7:0', 'dis1/dis8:0', 'dis1/dis9:0', 'dis1/dis10:0', 'embedding_3/embeddings:0', 'embedding_4/embeddings:0', 'beta1_power:0', 'beta2_power:0', 'gen1/gen1/Adam:0', 'gen1/gen1/Adam_1:0', 'gen1/gen2/Adam:0', 'gen1/gen2/Adam_1:0', 'gen1/gen3/kernel/Adam:0', 'gen1/gen3/kernel/Adam_1:0', 'gen1/gen3/bias/Adam:0', 'gen1/gen3/bias/Adam_1:0', 'gen1/gen4/kernel/Adam:0', 'gen1/gen4/kernel/Adam_1:0', 'gen1/gen4/bias/Adam:0', 'gen1/gen4/bias/Adam_1:0', 'gen1/gen5/kernel/Adam:0', 'gen1/gen5/kernel/Adam_1:0', 'gen1/gen5/bias/Adam:0', 'gen1/gen5/bias/Adam_1:0', 'gen1/gen6/kernel/Adam:0', 'gen1/gen6/kernel/Adam_1:0', 'gen1/gen6/bias/Adam:0', 'gen1/gen6/bias/Adam_1:0', 'gen1/BatchNorm_3/beta/Adam:0', 'gen1/BatchNorm_3/beta/Adam_1:0', 'beta1_power_1:0', 'beta2_power_1:0', 'dis1/dis11/Adam:0', 'dis1/dis11/Adam_1:0', 'dis1/dis2/Adam:0', 'dis1/dis2/Adam_1:0', 'dis1/dis3/kernel/Adam:0', 'dis1/dis3/kernel/Adam_1:0', 'dis1/dis3/bias/Adam:0', 'dis1/dis3/bias/Adam_1:0', 'dis1/BatchNorm/beta/Adam:0', 'dis1/BatchNorm/beta/Adam_1:0', 'dis1/conv1dis4/kernel/Adam:0', 'dis1/conv1dis4/kernel/Adam_1:0', 'dis1/conv1dis4/bias/Adam:0', 'dis1/conv1dis4/bias/Adam_1:0', 'dis1/BatchNorm_1/beta/Adam:0', 'dis1/BatchNorm_1/beta/Adam_1:0', 'dis1/conv2dis5/kernel/Adam:0', 'dis1/conv2dis5/kernel/Adam_1:0', 'dis1/conv2dis5/bias/Adam:0', 'dis1/conv2dis5/bias/Adam_1:0', 'dis1/BatchNorm_2/beta/Adam:0', 'dis1/BatchNorm_2/beta/Adam_1:0', 'dis1/conv3dis6/kernel/Adam:0', 'dis1/conv3dis6/kernel/Adam_1:0', 'dis1/conv3dis6/bias/Adam:0', 'dis1/conv3dis6/bias/Adam_1:0', 'dis1/BatchNorm_3/beta/Adam:0', 'dis1/BatchNorm_3/beta/Adam_1:0', 'dis1/conv4dis7/kernel/Adam:0', 'dis1/conv4dis7/kernel/Adam_1:0', 'dis1/conv4dis7/bias/Adam:0', 'dis1/conv4dis7/bias/Adam_1:0', 'dis1/BatchNorm_4/beta/Adam:0', 'dis1/BatchNorm_4/beta/Adam_1:0', 'dis1/dis7/Adam:0', 'dis1/dis7/Adam_1:0', 'dis1/dis8/Adam:0', 'dis1/dis8/Adam_1:0', 'dis1/dis9/Adam:0', 'dis1/dis9/Adam_1:0', 'dis1/dis10/Adam:0', 'dis1/dis10/Adam_1:0']
+            init_vars = []
+            init_var_names = []
+            for var in global_vars:
+                if 'embedding_1/embeddings' in var.name:
+                    print(var)
+                    print(1)
+                if var.name not in self.stage_1_vars and var.name not in init_var_names and type(var) == tf.Variable:
+                    if 'embedding_1/embeddings' in var.name:
+                        print(var)
+                        print(2)
+                    init_vars.append(var)
+                    init_var_names.append(var.name)
+            print(len(init_vars))
+            [var.name for var in init_vars]
+
+            sess.run(tf.variables_initializer(var_list = init_vars), options = run_opts)
             print('Start Training:::')
             for i in range(num_epochs):
                 print(str(i) + 'th epoch: ')
@@ -437,12 +477,35 @@ class StackGAN:
                                             options = run_opts)
 
                     gLoss /= 10
-
-                    # print('RRFC: '+ str(RRFC_gen))
-                    # print('FR: ' + str(FR_gen) + ", " +str(FR_dis))
-                    # print('RRRC: '+ str(RRRC_gen))
                     print('Discriminator Loss: ' + str(dLoss))
                     print('Generator Loss: ' + str(gLoss))
+
+            save_vars = []
+            save_var_names = []
+            save_vars.extend(d_vars)
+            save_vars.extend(g_vars)
+            #save_vars.extend(self.stage_1_vars)
+            print([var.name for var in global_vars])
+            print()
+            print([var.name for var in init_vars])
+            print()
+            for var in global_vars:
+                if var.name in self.stage_1_vars and var.name not in save_var_names:
+                    save_vars.append(var)
+                    save_var_names.append(var.name)
+                else:
+                    print(var.name)
+            print(len(save_vars))
+            for var in init_vars:
+                if var.name not in save_var_names:
+                    save_vars.append(var)
+                    save_var_names.append(var.name)
+                else:
+                    print(var.name)
+            print()
+            print([var.name for var in save_vars])
+            saver_1 = tf.train.Saver(var_list = save_vars)
+            saver_1.save(sess, "./ckpts/model.ckpt")
 
     #Need this function because OpenCV decodes in BGR order, not RGB
     def flip_channel_order(self, np_img):
@@ -471,15 +534,21 @@ class StackGAN:
 
     def predict(self, input_text):
         with tf.Session() as sess:
-            sess.run(tf.initialize_all_variables())
-            tensor_img = tf.squeeze(tf.cast(self.generator_2(input_text, is_train = False), dtype = tf.uint8))
+            saver = tf.train.import_meta_graph('ckpts/model.ckpt.meta')
+            saver.restore(sess, tf.train.latest_checkpoint('ckpts'))
+            init_img = self.generator_2(input_text, is_train = False)
+            print(self.discriminator_2(init_img, input_text, is_train = False).eval())
+            tensor_img = tf.squeeze(tf.cast(init_img, dtype = tf.uint8))
             np_img = tensor_img.eval()
             imwrite("output_image.jpg", self.flip_channel_order(np_img))
-        
+
 
     def predict_lowres(self, input_text):
         with tf.Session() as sess:
-            sess.run(tf.initialize_all_variables())
-            tensor_img = tf.squeeze(tf.cast(self.generator_1(input_text, is_train = False), dtype = tf.uint8))
+            saver = tf.train.import_meta_graph('ckpts/model.ckpt.meta')
+            saver.restore(sess, tf.train.latest_checkpoint('ckpts'))
+            init_img = self.generator_1(input_text, is_train = False)
+            print(self.discriminator_1(init_img, input_text, is_train = False).eval())
+            tensor_img = tf.squeeze(tf.cast(init_img, dtype = tf.uint8))
             np_img = tensor_img.eval()
-            imwrite("output_image.jpg", flip_channel_order(np_img))
+            imwrite("output_image.jpg", self.flip_channel_order(np_img))
