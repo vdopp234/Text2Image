@@ -75,9 +75,21 @@ class StackGAN:
             resized_img = tf.reshape(resized_img, shape = lst)
             #print(input_img.dtype)
 
-            input_conv1 = tf.layers.conv2d(tf.to_float(resized_img), N, kernel_size = [5, 5], strides = [2, 2], padding = 'SAME', kernel_initializer = tf.truncated_normal_initializer(stddev = .02), name = 'dis3')
+            input_conv1 = tf.layers.conv2d(tf.to_float(resized_img), int(N), kernel_size = [5, 5], strides = [2, 2], padding = 'SAME', kernel_initializer = tf.truncated_normal_initializer(stddev = .02), name = 'dis3')
             input_bn1 = tf.contrib.layers.batch_norm(input_conv1, is_training = is_train, epsilon=1e-5, decay = 0.9, updates_collections=None)
             input_act1 = tf.nn.relu(input_bn1)
+
+            # input_conv2 = tf.layers.conv2d(input_act1, int(N/4), kernel_size = [5, 5], strides = [2, 2], padding = 'SAME', kernel_initializer = tf.truncated_normal_initializer(stddev = .02), name = 'dis31')
+            # input_bn2 = tf.contrib.layers.batch_norm(input_conv2, is_training = is_train, epsilon=1e-5, decay = 0.9, updates_collections=None)
+            # input_act2 = tf.nn.relu(input_bn2)
+            #
+            # input_conv3 = tf.layers.conv2d(input_act2, int(N/2), kernel_size = [5, 5], strides = [2, 2], padding = 'SAME', kernel_initializer = tf.truncated_normal_initializer(stddev = .02), name = 'dis32')
+            # input_bn3 = tf.contrib.layers.batch_norm(input_conv3, is_training = is_train, epsilon=1e-5, decay = 0.9, updates_collections=None)
+            # input_act3 = tf.nn.relu(input_bn3)
+            #
+            # input_conv4 = tf.layers.conv2d(input_act3, int(N), kernel_size = [5, 5], strides = [2, 2], padding = 'SAME', kernel_initializer = tf.truncated_normal_initializer(stddev = .02), name = 'dis33')
+            # input_bn4 = tf.contrib.layers.batch_norm(input_conv4, is_training = is_train, epsilon=1e-5, decay = 0.9, updates_collections=None)
+            # input_act4 = tf.nn.relu(input_bn4)
 
             #Concatenating img and text tensors, then preform convolutions
             input_concat = tf.concat([mod_embedding, tf.squeeze(input_act1)], 2)
@@ -87,7 +99,6 @@ class StackGAN:
                     lst.append(i)
             input_concat = tf.reshape(input_concat, shape = lst)
             conv1 = tf.layers.conv2d(input_concat, 32, kernel_size = [5, 5], strides = [2, 2], padding = 'SAME', kernel_initializer = tf.truncated_normal_initializer(stddev = .02), name = 'conv1dis4')
-            #Preform batch normalization because it was found to improve GAN preformance
             bn1 = tf.contrib.layers.batch_norm(conv1, is_training = is_train, epsilon=1e-5, decay = 0.9, updates_collections=None)
             act1 = tf.nn.relu(bn1)
 
@@ -104,8 +115,8 @@ class StackGAN:
             act4 = tf.nn.relu(bn4)
 
             #Feed Forward Network
-            dim  = int(np.prod(act4.get_shape()[1:]))
-            h = tf.reshape(act4, shape = [-1, dim])
+            dim  = int(np.prod(act1.get_shape()[1:]))
+            h = tf.reshape(act1, shape = [-1, dim])
 
             W1 = tf.get_variable(shape = [dim, 128], dtype = tf.float32, name = 'dis7')
             B1 = tf.get_variable(shape = [128], dtype = tf.float32, name = 'dis8')
@@ -114,10 +125,10 @@ class StackGAN:
             W2 = tf.get_variable(shape = [128, 1], dtype = tf.float32, name = 'dis9')
             B2 = tf.get_variable(shape = [1], dtype = tf.float32, name = 'dis10')
             Y2 = tf.add(tf.matmul(Y1, W2), B2)
-            return tf.nn.sigmoid(Y2) #Use sigmoid activation because you want probability output
+            return tf.nn.sigmoid(Y2)
 
 
-    def train_1(self):
+    def train_1(self, save = True):
 
         real_image_size = 64
         text_input = tf.placeholder(dtype = tf.string)
@@ -162,12 +173,14 @@ class StackGAN:
         real_result_real_caption = self.discriminator_1(real_image, t_i)
 
         print('Finished 3 discriminations')
+        RRRC = tf.reduce_mean(real_result_real_caption)
         RRFC = tf.reduce_mean(real_result_fake_caption)
         FR = tf.reduce_mean(fake_result)
-        RRRC = tf.reduce_mean(real_result_real_caption)
 
-        dis_loss = tf.reduce_mean(real_result_fake_caption) + tf.reduce_mean(fake_result) - tf.reduce_mean(real_result_real_caption)
-        gen_loss = -tf.reduce_mean(fake_result)
+        dis_loss = -1*(tf.log(RRRC) + tf.log(1 - FR) + tf.log(1 - RRFC))
+        #dis_loss_1 = tf.reduce_mean(real_result_fake_caption) + tf.reduce_mean(fake_result) - tf.reduce_mean(real_result_real_caption)
+        gen_loss = tf.log(1 - FR)
+        #gen_loss_1 = -tf.reduce_mean(fake_result)
 
         #Creates lists of the discriminator and generator variables that will be trained
         t_vars = tf.trainable_variables()
@@ -181,57 +194,72 @@ class StackGAN:
             trainer_dis = tf.train.AdamOptimizer(learning_rate = lr, name = 'stage1dis').minimize(dis_loss, var_list = d_vars)
 
         with tf.Session() as sess:
-            batch_size = 10
+            batch_size = 1
             num_of_imgs = 11788
-            num_epochs = 1 #adjust if necessary
+            num_epochs = 1000 #adjust if necessary
 
             sess.run(tf.local_variables_initializer(), options = run_opts)
             sess.run(tf.global_variables_initializer(), options = run_opts)
 
             print('Start Training::: ')
             for i in range(num_epochs):
-                print(str(i) + 'th epoch: ')
+                print()
+                print()
+                print(str(i+1) + 'th epoch: ')
+                print()
+                print()
                 feeder = pr.FeedExamples()
                 num_of_batches = int(num_of_imgs/batch_size)
                 for j in range(num_of_batches):
                     #Training the Generator.
-                    gLoss = 0
-                    for k in range(10):
-                        train_data = feeder.next_example()
-                        train_image = train_data[0]
-                        txt = train_data[1]
-                        # print(train_image)
-                        # print(txt)
-                        g_loss, RRFC_gen, FR_gen, RRRC_gen, _ = sess.run([gen_loss, RRFC, FR, RRRC, trainer_gen], feed_dict = {text_input : [[txt]], r_image : train_image, lr : 3e-3},
-                                                options = run_opts)
-                        gLoss += g_loss
-                    #Training the Discriminator.
-                    for k in range(1):
-                        train_data = feeder.curr_example()
-                        train_image = train_data[0]
-                        #print(train_image)
-                        txt = train_data[1]
-                        #print(txt)
-                        feed_txt = [[txt]]
-                        dLoss, RRFC_dis, FR_dis, RRRC_dis, _ = sess.run([dis_loss, RRFC, FR, RRRC, trainer_dis], feed_dict = {text_input : feed_txt, r_image : train_image, lr : 1e-5},
-                                                options = run_opts)
-
-                    gLoss /= 10
-                    # print('RRFC: '+ str(RRFC_gen))
-                    # print('FR: ' + str(FR_gen) + ", " +str(FR_dis))
-                    # print('RRRC: '+ str(RRRC_gen))
-                    print('Discriminator Loss: ' + str(dLoss))
+                    train_data = feeder.next_example()
+                    train_image = train_data[0]
+                    txt = train_data[1]
+                    l_r = 2e-4 * (0.5 ** i//100)
+                    gLoss, RRFC_gen, FR_gen, RRRC_gen, _ = sess.run([gen_loss, RRFC, FR, RRRC, trainer_gen], feed_dict = {text_input : [[txt]], r_image : train_image, lr : l_r},
+                                            options = run_opts)
+                    dLoss, RRFC_dis, FR_dis, RRRC_dis, _ = sess.run([dis_loss, RRFC, FR, RRRC, trainer_dis], feed_dict = {text_input : [[txt]], r_image : train_image, lr : l_r},
+                                            options = run_opts)
                     print('Generator Loss: ' + str(gLoss))
-            self.stage_1_vars = ['embedding_1/embeddings:0', 'gen1/gen1:0', 'gen1/gen2:0', 'gen1/gen3/kernel:0', 'gen1/gen3/bias:0', 'gen1/BatchNorm/beta:0', 'gen1/BatchNorm/moving_mean:0', 'gen1/BatchNorm/moving_variance:0', 'gen1/gen4/kernel:0', 'gen1/gen4/bias:0', 'gen1/BatchNorm_1/beta:0', 'gen1/BatchNorm_1/moving_mean:0', 'gen1/BatchNorm_1/moving_variance:0', 'gen1/gen5/kernel:0', 'gen1/gen5/bias:0', 'gen1/BatchNorm_2/beta:0', 'gen1/BatchNorm_2/moving_mean:0', 'gen1/BatchNorm_2/moving_variance:0', 'gen1/gen6/kernel:0', 'gen1/gen6/bias:0', 'gen1/BatchNorm_3/beta:0', 'gen1/BatchNorm_3/moving_mean:0', 'gen1/BatchNorm_3/moving_variance:0', 'embedding_2/embeddings:0', 'dis1/dis11:0', 'dis1/dis2:0', 'dis1/dis3/kernel:0', 'dis1/dis3/bias:0', 'dis1/BatchNorm/beta:0', 'dis1/BatchNorm/moving_mean:0', 'dis1/BatchNorm/moving_variance:0', 'dis1/conv1dis4/kernel:0', 'dis1/conv1dis4/bias:0', 'dis1/BatchNorm_1/beta:0', 'dis1/BatchNorm_1/moving_mean:0', 'dis1/BatchNorm_1/moving_variance:0', 'dis1/conv2dis5/kernel:0', 'dis1/conv2dis5/bias:0', 'dis1/BatchNorm_2/beta:0', 'dis1/BatchNorm_2/moving_mean:0', 'dis1/BatchNorm_2/moving_variance:0', 'dis1/conv3dis6/kernel:0', 'dis1/conv3dis6/bias:0', 'dis1/BatchNorm_3/beta:0', 'dis1/BatchNorm_3/moving_mean:0', 'dis1/BatchNorm_3/moving_variance:0', 'dis1/conv4dis7/kernel:0', 'dis1/conv4dis7/bias:0', 'dis1/BatchNorm_4/beta:0', 'dis1/BatchNorm_4/moving_mean:0', 'dis1/BatchNorm_4/moving_variance:0', 'dis1/dis7:0', 'dis1/dis8:0', 'dis1/dis9:0', 'dis1/dis10:0', 'embedding_3/embeddings:0', 'embedding_4/embeddings:0', 'beta1_power:0', 'beta2_power:0', 'gen1/gen1/Adam:0', 'gen1/gen1/Adam_1:0', 'gen1/gen2/Adam:0', 'gen1/gen2/Adam_1:0', 'gen1/gen3/kernel/Adam:0', 'gen1/gen3/kernel/Adam_1:0', 'gen1/gen3/bias/Adam:0', 'gen1/gen3/bias/Adam_1:0', 'gen1/gen4/kernel/Adam:0', 'gen1/gen4/kernel/Adam_1:0', 'gen1/gen4/bias/Adam:0', 'gen1/gen4/bias/Adam_1:0', 'gen1/gen5/kernel/Adam:0', 'gen1/gen5/kernel/Adam_1:0', 'gen1/gen5/bias/Adam:0', 'gen1/gen5/bias/Adam_1:0', 'gen1/gen6/kernel/Adam:0', 'gen1/gen6/kernel/Adam_1:0', 'gen1/gen6/bias/Adam:0', 'gen1/gen6/bias/Adam_1:0', 'gen1/BatchNorm_3/beta/Adam:0', 'gen1/BatchNorm_3/beta/Adam_1:0', 'beta1_power_1:0', 'beta2_power_1:0', 'dis1/dis11/Adam:0', 'dis1/dis11/Adam_1:0', 'dis1/dis2/Adam:0', 'dis1/dis2/Adam_1:0', 'dis1/dis3/kernel/Adam:0', 'dis1/dis3/kernel/Adam_1:0', 'dis1/dis3/bias/Adam:0', 'dis1/dis3/bias/Adam_1:0', 'dis1/BatchNorm/beta/Adam:0', 'dis1/BatchNorm/beta/Adam_1:0', 'dis1/conv1dis4/kernel/Adam:0', 'dis1/conv1dis4/kernel/Adam_1:0', 'dis1/conv1dis4/bias/Adam:0', 'dis1/conv1dis4/bias/Adam_1:0', 'dis1/BatchNorm_1/beta/Adam:0', 'dis1/BatchNorm_1/beta/Adam_1:0', 'dis1/conv2dis5/kernel/Adam:0', 'dis1/conv2dis5/kernel/Adam_1:0', 'dis1/conv2dis5/bias/Adam:0', 'dis1/conv2dis5/bias/Adam_1:0', 'dis1/BatchNorm_2/beta/Adam:0', 'dis1/BatchNorm_2/beta/Adam_1:0', 'dis1/conv3dis6/kernel/Adam:0', 'dis1/conv3dis6/kernel/Adam_1:0', 'dis1/conv3dis6/bias/Adam:0', 'dis1/conv3dis6/bias/Adam_1:0', 'dis1/BatchNorm_3/beta/Adam:0', 'dis1/BatchNorm_3/beta/Adam_1:0', 'dis1/conv4dis7/kernel/Adam:0', 'dis1/conv4dis7/kernel/Adam_1:0', 'dis1/conv4dis7/bias/Adam:0', 'dis1/conv4dis7/bias/Adam_1:0', 'dis1/BatchNorm_4/beta/Adam:0', 'dis1/BatchNorm_4/beta/Adam_1:0', 'dis1/dis7/Adam:0', 'dis1/dis7/Adam_1:0', 'dis1/dis8/Adam:0', 'dis1/dis8/Adam_1:0', 'dis1/dis9/Adam:0', 'dis1/dis9/Adam_1:0', 'dis1/dis10/Adam:0', 'dis1/dis10/Adam_1:0']
-            #print(list(ops.GraphKeys.GLOBAL_VARIABLES))
-            save_vars = []
-            for var in ops.get_collection(ops.GraphKeys.GLOBAL_VARIABLES):
-                if var.name in self.stage_1_vars:
-                    save_vars.append(var)
+                    print('Discriminator Loss: ' + str(dLoss))
+                    print('Fake Image: ' + str(FR_dis))
+                    #Training the Discriminator.
 
-            saver = tf.train.Saver()
-            #saver = tf.train.Saver(var_list = save_vars)
-            saver.save(sess, "./ckpts/model.ckpt")
+                    # else:
+                    #     for _ in range(421):
+                    #         train_data = feeder.next_example()
+                    #         train_image = train_data[0]
+                    #         txt = train_data[1]
+                    #         feed_txt = [[txt]]
+                    #         l_r = 1e-4
+                    #         dLoss, RRFC_dis, FR_dis, RRRC_dis, _ = sess.run([dis_loss, RRFC, FR, RRRC, trainer_dis], feed_dict = {text_input : [[txt]], r_image : train_image, lr : 1e-4},
+                    #                                 options = run_opts)
+
+
+
+                    # print('RRFC: '+ str(RRFC_gen))
+                    # print('FR: ' + str(FR_gen))
+                    # print('RRRC: '+ str(RRRC_gen))
+                
+
+
+            if save:
+                self.stage_1_vars = ['embedding_1/embeddings:0', 'gen1/gen1:0', 'gen1/gen2:0', 'gen1/gen3/kernel:0', 'gen1/gen3/bias:0', 'gen1/BatchNorm/beta:0', 'gen1/BatchNorm/moving_mean:0', 'gen1/BatchNorm/moving_variance:0', 'gen1/gen4/kernel:0', 'gen1/gen4/bias:0', 'gen1/BatchNorm_1/beta:0', 'gen1/BatchNorm_1/moving_mean:0', 'gen1/BatchNorm_1/moving_variance:0', 'gen1/gen5/kernel:0', 'gen1/gen5/bias:0', 'gen1/BatchNorm_2/beta:0', 'gen1/BatchNorm_2/moving_mean:0', 'gen1/BatchNorm_2/moving_variance:0', 'gen1/gen6/kernel:0', 'gen1/gen6/bias:0', 'gen1/BatchNorm_3/beta:0', 'gen1/BatchNorm_3/moving_mean:0', 'gen1/BatchNorm_3/moving_variance:0', 'embedding_2/embeddings:0', 'dis1/dis11:0', 'dis1/dis2:0', 'dis1/dis3/kernel:0', 'dis1/dis3/bias:0', 'dis1/BatchNorm/beta:0', 'dis1/BatchNorm/moving_mean:0', 'dis1/BatchNorm/moving_variance:0', 'dis1/conv1dis4/kernel:0', 'dis1/conv1dis4/bias:0', 'dis1/BatchNorm_1/beta:0', 'dis1/BatchNorm_1/moving_mean:0', 'dis1/BatchNorm_1/moving_variance:0', 'dis1/conv2dis5/kernel:0', 'dis1/conv2dis5/bias:0', 'dis1/BatchNorm_2/beta:0', 'dis1/BatchNorm_2/moving_mean:0', 'dis1/BatchNorm_2/moving_variance:0', 'dis1/conv3dis6/kernel:0', 'dis1/conv3dis6/bias:0', 'dis1/BatchNorm_3/beta:0', 'dis1/BatchNorm_3/moving_mean:0', 'dis1/BatchNorm_3/moving_variance:0', 'dis1/conv4dis7/kernel:0', 'dis1/conv4dis7/bias:0', 'dis1/BatchNorm_4/beta:0', 'dis1/BatchNorm_4/moving_mean:0', 'dis1/BatchNorm_4/moving_variance:0', 'dis1/dis7:0', 'dis1/dis8:0', 'dis1/dis9:0', 'dis1/dis10:0', 'embedding_3/embeddings:0', 'embedding_4/embeddings:0', 'beta1_power:0', 'beta2_power:0', 'gen1/gen1/Adam:0', 'gen1/gen1/Adam_1:0', 'gen1/gen2/Adam:0', 'gen1/gen2/Adam_1:0', 'gen1/gen3/kernel/Adam:0', 'gen1/gen3/kernel/Adam_1:0', 'gen1/gen3/bias/Adam:0', 'gen1/gen3/bias/Adam_1:0', 'gen1/gen4/kernel/Adam:0', 'gen1/gen4/kernel/Adam_1:0', 'gen1/gen4/bias/Adam:0', 'gen1/gen4/bias/Adam_1:0', 'gen1/gen5/kernel/Adam:0', 'gen1/gen5/kernel/Adam_1:0', 'gen1/gen5/bias/Adam:0', 'gen1/gen5/bias/Adam_1:0', 'gen1/gen6/kernel/Adam:0', 'gen1/gen6/kernel/Adam_1:0', 'gen1/gen6/bias/Adam:0', 'gen1/gen6/bias/Adam_1:0', 'gen1/BatchNorm_3/beta/Adam:0', 'gen1/BatchNorm_3/beta/Adam_1:0', 'beta1_power_1:0', 'beta2_power_1:0', 'dis1/dis11/Adam:0', 'dis1/dis11/Adam_1:0', 'dis1/dis2/Adam:0', 'dis1/dis2/Adam_1:0', 'dis1/dis3/kernel/Adam:0', 'dis1/dis3/kernel/Adam_1:0', 'dis1/dis3/bias/Adam:0', 'dis1/dis3/bias/Adam_1:0', 'dis1/BatchNorm/beta/Adam:0', 'dis1/BatchNorm/beta/Adam_1:0', 'dis1/conv1dis4/kernel/Adam:0', 'dis1/conv1dis4/kernel/Adam_1:0', 'dis1/conv1dis4/bias/Adam:0', 'dis1/conv1dis4/bias/Adam_1:0', 'dis1/BatchNorm_1/beta/Adam:0', 'dis1/BatchNorm_1/beta/Adam_1:0', 'dis1/conv2dis5/kernel/Adam:0', 'dis1/conv2dis5/kernel/Adam_1:0', 'dis1/conv2dis5/bias/Adam:0', 'dis1/conv2dis5/bias/Adam_1:0', 'dis1/BatchNorm_2/beta/Adam:0', 'dis1/BatchNorm_2/beta/Adam_1:0', 'dis1/conv3dis6/kernel/Adam:0', 'dis1/conv3dis6/kernel/Adam_1:0', 'dis1/conv3dis6/bias/Adam:0', 'dis1/conv3dis6/bias/Adam_1:0', 'dis1/BatchNorm_3/beta/Adam:0', 'dis1/BatchNorm_3/beta/Adam_1:0', 'dis1/conv4dis7/kernel/Adam:0', 'dis1/conv4dis7/kernel/Adam_1:0', 'dis1/conv4dis7/bias/Adam:0', 'dis1/conv4dis7/bias/Adam_1:0', 'dis1/BatchNorm_4/beta/Adam:0', 'dis1/BatchNorm_4/beta/Adam_1:0', 'dis1/dis7/Adam:0', 'dis1/dis7/Adam_1:0', 'dis1/dis8/Adam:0', 'dis1/dis8/Adam_1:0', 'dis1/dis9/Adam:0', 'dis1/dis9/Adam_1:0', 'dis1/dis10/Adam:0', 'dis1/dis10/Adam_1:0']
+                #print(list(ops.GraphKeys.GLOBAL_VARIABLES))
+                save_vars = []
+                save_vars.extend(g_vars)
+                save_vars.extend(d_vars)
+                save_vars_names = [var.name for var in save_vars]
+                for var in ops.get_collection(ops.GraphKeys.GLOBAL_VARIABLES):
+                    if var.name in self.stage_1_vars and var.name not in save_vars_names:
+                        save_vars.append(var)
+                        save_vars_names.append(var.name)
+
+                saver = tf.train.Saver(var_list = save_vars)
+                print(save_vars_names)
+                #saver = tf.train.Saver(var_list = save_vars)
+                saver.save(sess, "./ckpts/model.ckpt")
+
 
 
 
@@ -290,9 +318,6 @@ class StackGAN:
             return act4
 
     def discriminator_2(self, input_img, input_txt, is_train = True):
-
-
-
         with tf.variable_scope('dis2', reuse = tf.AUTO_REUSE) as scope:
             output_dim = 1
             init_embedding = enc.encode().predict(enc.tokenize(input_txt)) #Refer back to blog post if this doesn't work
@@ -415,8 +440,10 @@ class StackGAN:
         FR = tf.reduce_mean(fake_result)
         RRRC = tf.reduce_mean(real_result_real_caption)
 
-        dis_loss = tf.reduce_mean(real_result_fake_caption) + tf.reduce_mean(fake_result) - tf.reduce_mean(real_result_real_caption)
-        gen_loss = -tf.reduce_mean(fake_result)
+        dis_loss = -1*(tf.log(RRRC) + tf.log(1 - FR) + tf.log(1 - RRFC))
+        #dis_loss_1 = tf.reduce_mean(real_result_fake_caption) + tf.reduce_mean(fake_result) - tf.reduce_mean(real_result_real_caption)
+        gen_loss = tf.log(1 - FR)
+        #gen_loss_1 = -tf.reduce_mean(fake_result)
 
         t_vars = tf.trainable_variables()
         d_vars = [var for var in t_vars if 'dis2/' in var.name]
@@ -428,9 +455,9 @@ class StackGAN:
 
         #Train 2
         with tf.Session() as sess:
-            batch_size = 10
+            batch_size = 28
             num_of_imgs = 11788
-            num_epochs = 1 #adjust if necessary
+            num_epochs = 3 #adjust if necessary
             saver = tf.train.import_meta_graph('ckpts/model.ckpt.meta')
             saver.restore(sess, tf.train.latest_checkpoint('ckpts'))
             global_vars = ops.get_collection(ops.GraphKeys.GLOBAL_VARIABLES)
@@ -449,7 +476,6 @@ class StackGAN:
                     init_var_names.append(var.name)
             print(len(init_vars))
             [var.name for var in init_vars]
-
             sess.run(tf.variables_initializer(var_list = init_vars), options = run_opts)
             print('Start Training:::')
             for i in range(num_epochs):
@@ -458,23 +484,26 @@ class StackGAN:
                 for j in range(int(num_of_imgs/batch_size)):
                     #noise_vecs = np.random.uniform(-1.0, 1.0, size = (batch_size, input_dim))
                     gLoss = 0
-                    #Training the Generator.
-                    for k in range(10):
-                        train_data = feeder.next_example()
-                        train_image = train_data[0]
-                        txt = train_data[1]
-                        g_loss, RRFC_gen, FR_gen, RRRC_gen, _ = sess.run([gen_loss, RRFC, FR, RRRC, trainer_gen],
-                                            feed_dict = {text_input : [[txt]], r_image : train_image, lr : 3e-3},
-                                                         options = run_opts)
-                        gLoss += g_loss
-                    #Training the Discriminator.
-                    for k in range(1):
-                        train_data = feeder.curr_example()
-                        train_image = train_data[0]
-                        txt = train_data[1]
-                        dLoss, FR_dis, _ = sess.run([dis_loss, FR, trainer_dis],
-                                            feed_dict = {text_input : [[txt]], r_image : train_image, lr: 1e-5},
-                                            options = run_opts)
+                    for _ in range(batch_size):
+                        #Training the Generator.
+                        for k in range(1):
+                            train_data = feeder.next_example()
+                            train_image = train_data[0]
+                            txt = train_data[1]
+                            l_r = 3e-3
+                            g_loss, RRFC_gen, FR_gen, RRRC_gen, _ = sess.run([gen_loss, RRFC, FR, RRRC, trainer_gen],
+                                                feed_dict = {text_input : [[txt]], r_image : train_image, lr : l_r},
+                                                             options = run_opts)
+                            gLoss += g_loss
+                        #Training the Discriminator.
+                        for k in range(1):
+                            train_data = feeder.curr_example()
+                            train_image = train_data[0]
+                            txt = train_data[1]
+                            l_r = 1e-4
+                            dLoss, FR_dis, _ = sess.run([dis_loss, FR, trainer_dis],
+                                                feed_dict = {text_input : [[txt]], r_image : train_image, lr: l_r},
+                                                options = run_opts)
 
                     gLoss /= 10
                     print('Discriminator Loss: ' + str(dLoss))
@@ -484,7 +513,6 @@ class StackGAN:
             save_var_names = []
             save_vars.extend(d_vars)
             save_vars.extend(g_vars)
-            #save_vars.extend(self.stage_1_vars)
             print([var.name for var in global_vars])
             print()
             print([var.name for var in init_vars])
@@ -508,8 +536,7 @@ class StackGAN:
             saver_1.save(sess, "./ckpts/model.ckpt")
 
     #Need this function because OpenCV decodes in BGR order, not RGB
-    def flip_channel_order(self, np_img):
-        img_dim = 256
+    def flip_channel_order(self, np_img, img_dim = 256):
         one = np.zeros(shape = (img_dim, img_dim, 1))
         two = np.zeros(shape = (img_dim, img_dim, 1))
         three = np.zeros(shape = (img_dim, img_dim, 1))
@@ -551,4 +578,4 @@ class StackGAN:
             print(self.discriminator_1(init_img, input_text, is_train = False).eval())
             tensor_img = tf.squeeze(tf.cast(init_img, dtype = tf.uint8))
             np_img = tensor_img.eval()
-            imwrite("output_image.jpg", self.flip_channel_order(np_img))
+            imwrite("output_image.jpg", self.flip_channel_order(np_img, img_dim = 64))
