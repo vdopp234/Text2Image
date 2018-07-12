@@ -13,9 +13,11 @@ class StackGAN:
         self.caption_arr = pr.construct_caption_arr(pr.num_to_attr('data/LabelledBirds/attributes/attributes.txt'), 'data/LabelledBirds/attributes/image_attribute_labels.txt')
         self.stage_1_vars = []
     #Stage 1 GAN
-    def generator_1(self, text_input, is_train = True, r = tf.AUTO_REUSE):
-        with tf.variable_scope('gen1', reuse = r) as scope:
-            cond_vec = enc.encode().predict(enc.tokenize(text_input))
+    def generator_1(self, text_input, is_train = True):
+
+        with tf.variable_scope('g1', reuse = tf.AUTO_REUSE) as scope:
+            encoder_ = enc.load_model()
+            cond_vec = encoder_.predict(enc.tokenize(text_input))
             noise_vec = tf.random_normal(cond_vec.shape)
             input = tf.concat([noise_vec, cond_vec], 1)
 
@@ -29,7 +31,7 @@ class StackGAN:
 
             start = int(self.output_dim/2)
 
-            #print(reshaped)
+        #print(reshaped)
             conv1 = tf.layers.conv2d_transpose(reshaped, start, kernel_size = [5, 5], strides = [2, 2], padding = 'SAME', kernel_initializer = tf.truncated_normal_initializer(stddev = 0.5), name = 'gen3') #Add filters,
             bn1 = tf.contrib.layers.batch_norm(conv1, is_training = is_train, epsilon = 1e-5, decay = 0.9, updates_collections = None)
             act1 = tf.nn.relu(bn1)
@@ -39,7 +41,7 @@ class StackGAN:
             act2 = tf.nn.relu(bn2)
 
             conv3 = tf.layers.conv2d_transpose(conv2, int(start/4), kernel_size = [5, 5], strides = [2, 2], padding = 'SAME', kernel_initializer = tf.truncated_normal_initializer(stddev = 0.5), name = 'gen5') #Add filters,
-            bn3 = tf.contrib.layers.batch_norm(conv3, is_training = is_train, epsilon = 1e-5, decay = 0.9, updates_collections = None)
+            bn3 = tf.contrib.layers.batch_norm(conv3, is_training = is_train, epsilon = 1e-5, decay = 0.9, updates_collections = None )
             act3 = tf.nn.relu(bn3)
 
             conv4 = tf.layers.conv2d_transpose(conv3, 3, kernel_size = [5, 5], strides = [2, 2], padding = 'SAME', kernel_initializer = tf.truncated_normal_initializer(stddev = 0.5), name = 'gen6') #Add filters,
@@ -49,49 +51,51 @@ class StackGAN:
             return tf.squeeze(act4) #should be a tensor of shape (output_dim, output_dim, 3)
 
     #Input is your image. Discriminator is only used during training, so you add the input when training
-    def discriminator_1(self, input_img, input_txt, is_train = True, r = tf.AUTO_REUSE):
+    def discriminator_1(self, input_img, input_txt, is_train = True):
         #Shrink to lower dimension
-        with tf.variable_scope('dis1', reuse = r) as scope:
+        with tf.variable_scope('d1', reuse = tf.AUTO_REUSE) as scope:
+            encoder_ = enc.load_model()
+
             #Reshape/Resize Text Embedding
             output_dim = 1
-            init_embedding = enc.encode().predict(enc.tokenize(input_txt))
+            init_embedding = encoder_.predict(enc.tokenize(input_txt))
             N, M = 16, 32 #Play around with these values. Likely, larger the value, more detail is retained but slower the training is
 
-            W0 = tf.get_variable('dis11', shape = (init_embedding.shape[1], M*M*N), dtype = tf.float32, initializer = tf.truncated_normal_initializer)
+            W0 = tf.get_variable('dis1', shape = (init_embedding.shape[1], M*M*N), dtype = tf.float32, initializer = tf.truncated_normal_initializer)
             B0 = tf.get_variable('dis2', shape = (M*M*N,), dtype = tf.float32, initializer = tf.constant_initializer(0.0))
             Y0 = tf.nn.relu(tf.add(tf.matmul(init_embedding, W0), B0))
 
-            #Expand to create MxMxN 3d tensor
+                #Expand to create MxMxN 3d tensor
             mod_embedding = tf.reshape(Y0, shape = (M, M, N))
 
-            #Convolution for img
+                #Convolution for img
             resized_img = tf.image.resize_images(input_img, (64, 64))
             lst = resized_img.shape
-            #print(resized_img.shape) #Debugging Purposes
+                #print(resized_img.shape) #Debugging Purposes
             if len(resized_img.shape) != 4:
                 lst = [1]
                 for i in resized_img.shape:
                     lst.append(i)
             resized_img = tf.reshape(resized_img, shape = lst)
-            #print(input_img.dtype)
+                #print(input_img.dtype)
 
             input_conv1 = tf.layers.conv2d(tf.to_float(resized_img), int(N), kernel_size = [5, 5], strides = [2, 2], padding = 'SAME', kernel_initializer = tf.truncated_normal_initializer(stddev = .02), name = 'dis3')
             input_bn1 = tf.contrib.layers.batch_norm(input_conv1, is_training = is_train, epsilon=1e-5, decay = 0.9, updates_collections=None)
             input_act1 = tf.nn.relu(input_bn1)
 
-            # input_conv2 = tf.layers.conv2d(input_act1, int(N/4), kernel_size = [5, 5], strides = [2, 2], padding = 'SAME', kernel_initializer = tf.truncated_normal_initializer(stddev = .02), name = 'dis31')
-            # input_bn2 = tf.contrib.layers.batch_norm(input_conv2, is_training = is_train, epsilon=1e-5, decay = 0.9, updates_collections=None)
-            # input_act2 = tf.nn.relu(input_bn2)
-            #
-            # input_conv3 = tf.layers.conv2d(input_act2, int(N/2), kernel_size = [5, 5], strides = [2, 2], padding = 'SAME', kernel_initializer = tf.truncated_normal_initializer(stddev = .02), name = 'dis32')
-            # input_bn3 = tf.contrib.layers.batch_norm(input_conv3, is_training = is_train, epsilon=1e-5, decay = 0.9, updates_collections=None)
-            # input_act3 = tf.nn.relu(input_bn3)
-            #
-            # input_conv4 = tf.layers.conv2d(input_act3, int(N), kernel_size = [5, 5], strides = [2, 2], padding = 'SAME', kernel_initializer = tf.truncated_normal_initializer(stddev = .02), name = 'dis33')
-            # input_bn4 = tf.contrib.layers.batch_norm(input_conv4, is_training = is_train, epsilon=1e-5, decay = 0.9, updates_collections=None)
-            # input_act4 = tf.nn.relu(input_bn4)
+                # input_conv2 = tf.layers.conv2d(input_act1, int(N/4), kernel_size = [5, 5], strides = [2, 2], padding = 'SAME', kernel_initializer = tf.truncated_normal_initializer(stddev = .02), name = 'dis31')
+                # input_bn2 = tf.contrib.layers.batch_norm(input_conv2, is_training = is_train, epsilon=1e-5, decay = 0.9, updates_collections=None)
+                # input_act2 = tf.nn.relu(input_bn2)
+                #
+                # input_conv3 = tf.layers.conv2d(input_act2, int(N/2), kernel_size = [5, 5], strides = [2, 2], padding = 'SAME', kernel_initializer = tf.truncated_normal_initializer(stddev = .02), name = 'dis32')
+                # input_bn3 = tf.contrib.layers.batch_norm(input_conv3, is_training = is_train, epsilon=1e-5, decay = 0.9, updates_collections=None)
+                # input_act3 = tf.nn.relu(input_bn3)
+                #
+                # input_conv4 = tf.layers.conv2d(input_act3, int(N), kernel_size = [5, 5], strides = [2, 2], padding = 'SAME', kernel_initializer = tf.truncated_normal_initializer(stddev = .02), name = 'dis33')
+                # input_bn4 = tf.contrib.layers.batch_norm(input_conv4, is_training = is_train, epsilon=1e-5, decay = 0.9, updates_collections=None)
+                # input_act4 = tf.nn.relu(input_bn4)
 
-            #Concatenating img and text tensors, then preform convolutions
+                #Concatenating img and text tensors, then preform convolutions
             input_concat = tf.concat([mod_embedding, tf.squeeze(input_act1)], 2)
             lst = [1]
             for i in input_concat.shape:
@@ -114,7 +118,7 @@ class StackGAN:
             bn4 = tf.contrib.layers.batch_norm(conv4, decay = 0.9, epsilon = 1e-5, is_training = is_train, updates_collections = None)
             act4 = tf.nn.relu(bn4)
 
-            #Feed Forward Network
+                #Feed Forward Network
             dim  = int(np.prod(act1.get_shape()[1:]))
             h = tf.reshape(act1, shape = [-1, dim])
 
@@ -126,7 +130,6 @@ class StackGAN:
             B2 = tf.get_variable(shape = [1], dtype = tf.float32, name = 'dis10')
             Y2 = tf.add(tf.matmul(Y1, W2), B2)
             return tf.nn.sigmoid(Y2)
-
 
     def train_1(self, save = True):
 
@@ -166,6 +169,7 @@ class StackGAN:
         fake_image_size = 64
         fake_image = self.generator_1(t_i)
         print('First')
+
         fake_result = self.discriminator_1(fake_image, t_i)
         print('Second')
         real_result_fake_caption = self.discriminator_1(real_image, fake_caption)
@@ -178,33 +182,28 @@ class StackGAN:
         FR = tf.reduce_mean(fake_result)
 
         dis_loss = -1*(tf.log(RRRC) + tf.log(1 - FR) + tf.log(1 - RRFC))
-        #dis_loss_1 = tf.reduce_mean(real_result_fake_caption) + tf.reduce_mean(fake_result) - tf.reduce_mean(real_result_real_caption)
+        #dis_loss = tf.log(1 - RRRC) + tf.log(FR) + tf.log(RRFC)
         gen_loss = tf.log(1 - FR)
-        #gen_loss_1 = -tf.reduce_mean(fake_result)
 
-        #Creates lists of the discriminator and generator variables that will be trained
         t_vars = tf.trainable_variables()
-        d_vars = [var for var in t_vars if 'dis1/' in var.name]
-        g_vars = [var for var in t_vars if 'gen1/' in var.name]
-        # print([var.name for var in t_vars])
+        d_vars = [var for var in t_vars if 'd1' in var.name]
+        g_vars = [var for var in t_vars if 'g1' in var.name]
 
-        with tf.variable_scope('gan1', reuse = tf.AUTO_REUSE):
-            trainer_gen = tf.train.AdamOptimizer(learning_rate = lr, name = 'stage1gen').minimize(gen_loss, var_list = g_vars)
-            trainer_dis = tf.train.AdamOptimizer(learning_rate = lr, name = 'stage1dis').minimize(dis_loss, var_list = d_vars)
+        #with tf.variable_scope('gan1', reuse = tf.AUTO_REUSE):
+        trainer_gen = tf.train.AdamOptimizer(learning_rate = lr, name = 'stage1gen').minimize(gen_loss, var_list = g_vars)
+        trainer_dis = tf.train.AdamOptimizer(learning_rate = lr, name = 'stage1dis').minimize(dis_loss, var_list = d_vars)
 
-        # print(ops.get_collection(ops.GraphKeys.GLOBAL_VARIABLES))
-        # print(ops.get_collection(ops.GraphKeys.LOCAL_VARIABLES))
-        # print(ops.get_collection(ops.GraphKeys.MODEL_VARIABLES))
-        # print(ops.get_collection(ops.GraphKeys.MOVING_AVERAGE_VARIABLES))
 
 
         with tf.Session() as sess:
-            batch_size = 1
+            batch_size = 10
             num_of_imgs = 11788
-            num_epochs = 1 #adjust if necessary
+            num_epochs = 2 #adjust if necessary
 
             sess.run(tf.local_variables_initializer(), options = run_opts)
             sess.run(tf.global_variables_initializer(), options = run_opts)
+            # saver = tf.train.Saver()
+            # saver.restore(sess, tf.train.latest_checkpoint('ckpts'))
 
             print('Start Training::: ')
             for i in range(num_epochs):
@@ -215,79 +214,43 @@ class StackGAN:
                 print()
                 feeder = pr.FeedExamples()
                 num_of_batches = int(num_of_imgs/batch_size)
+                avg_loss = 0
                 for j in range(num_of_batches):
                     #Training the Generator.
-                    train_data = feeder.next_example()
-                    train_image = train_data[0]
-                    txt = train_data[1]
-                    l_r = 2e-4 * (0.5 ** i//100)
-                    gLoss, RRFC_gen, FR_gen, RRRC_gen, _ = sess.run([gen_loss, RRFC, FR, RRRC, trainer_gen], feed_dict = {text_input : [[txt]], r_image : train_image, lr : l_r},
-                                            options = run_opts)
-                    dLoss, RRFC_dis, FR_dis, RRRC_dis, _ = sess.run([dis_loss, RRFC, FR, RRRC, trainer_dis], feed_dict = {text_input : [[txt]], r_image : train_image, lr : l_r},
-                                            options = run_opts)
+                    ind = int(np.random.random()*5)
+                    example = None
+                    for _ in range(10):
+                        train_data = feeder.next_example()
+                        if _ == ind:
+                            example = train_data
+                        train_image = train_data[0]
+                        txt = train_data[1]
+                        l_r = 1e-4 * (0.5 ** (i//100))
+                        gLoss, op = sess.run([gen_loss, trainer_gen], feed_dict = {text_input : [[txt]], r_image : train_image, lr : l_r},
+                                                options = run_opts)
+                    for _ in range(1):
+                        train_image = example[0]
+                        txt = example[1]
+                        l_r = 8e-4 * (0.5 ** (i//100))
+                        dLoss, FR_dis, op = sess.run([dis_loss, FR, trainer_dis], feed_dict = {text_input : [[txt]], r_image : train_image, lr : l_r},
+                                                options = run_opts)
+
                     print('Generator Loss: ' + str(gLoss))
                     print('Discriminator Loss: ' + str(dLoss))
                     print('Fake Image: ' + str(FR_dis))
-                    #Training the Discriminator.
-
-                    # else:
-                    #     for _ in range(421):
-                    #         train_data = feeder.next_example()
-                    #         train_image = train_data[0]
-                    #         txt = train_data[1]
-                    #         feed_txt = [[txt]]
-                    #         l_r = 1e-4
-                    #         dLoss, RRFC_dis, FR_dis, RRRC_dis, _ = sess.run([dis_loss, RRFC, FR, RRRC, trainer_dis], feed_dict = {text_input : [[txt]], r_image : train_image, lr : 1e-4},
-                    #                                 options = run_opts)
-
-
-
-                    # print('RRFC: '+ str(RRFC_gen))
-                    # print('FR: ' + str(FR_gen))
-                    # print('RRRC: '+ str(RRRC_gen))
                 #Save current state after every epoch
                 if save:
-                    save_vars = []
-                    save_vars.extend(g_vars)
-                    save_vars.extend(d_vars)
-                    save_vars_names = [var.name for var in save_vars]
-                    for var in ops.get_collection(ops.GraphKeys.GLOBAL_VARIABLES):
-                        if var.name not in save_vars_names:
-                            save_vars.append(var)
-                            save_vars_names.append(var.name)
-
-                    more_vars_to_save = ['dis1/BatchNorm_1/moving_mean_1']
-                    print([var.name for var in ops.get_collection(ops.GraphKeys.GLOBAL_VARIABLES)])
-                    print([var.name for var in ops.get_collection(ops.GraphKeys.LOCAL_VARIABLES)])
-                    print([var.name for var in ops.get_collection(ops.GraphKeys.MOVING_AVERAGE_VARIABLES)])
-                    print([var.name for var in ops.get_collection(ops.GraphKeys.MODEL_VARIABLES)])
-                    for var in tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES):
-                        for var_name in more_vars_to_save:
-                            if var_name in var.name and var.name not in save_vars_names:
-                                save_vars.append(var)
-                                save_vars_names.append(var.name)
-                    for var in tf.get_collection(tf.GraphKeys.MODEL_VARIABLES):
-                        for var_name in more_vars_to_save:
-                            if var_name in var.name and var.name not in save_vars_names:
-                                save_vars.append(var)
-                                save_vars_names.append(var.name)
-                    saver = tf.train.Saver(var_list = save_vars)
-                    print(save_vars_names)
+                    print('Saving:')
+                    saver = tf.train.Saver()
                     saver.save(sess, "./ckpts/model.ckpt")
-
-
-
-
-
-
-
     #Stage 2 GAN
 
     def generator_2(self, text_input, is_train = True, r = tf.AUTO_REUSE):
         #Upsample text embedding
         #Play around with these values. Likely, larger the value, more detail is retained but slower the training is
+        encoder_ = enc.load_model()
         with tf.variable_scope('gen2', reuse = r) as scope:
-            init_embedding = enc.encode().predict(enc.tokenize(text_input))
+            init_embedding = encoder_.predict(enc.tokenize(text_input))
             N, M = 32, 16
 
             W0 = tf.get_variable('w0', shape = (init_embedding.shape[1], M*M*N), dtype = tf.float32, initializer = tf.truncated_normal_initializer)
@@ -338,7 +301,7 @@ class StackGAN:
     def discriminator_2(self, input_img, input_txt, is_train = True, r = tf.AUTO_REUSE):
         with tf.variable_scope('dis2', reuse = r) as scope:
             output_dim = 1
-            init_embedding = enc.encode().predict(enc.tokenize(input_txt)) #Refer back to blog post if this doesn't work
+            init_embedding = enc.load_model().predict(enc.tokenize(input_txt)) #Refer back to blog post if this doesn't work
             N, M = 16, 16 #Play around with these values. Likely, larger the value, more detail is retained but OOM Error may be thrown.
             W0 = tf.get_variable('w0', shape = (init_embedding.shape[1], M*M*N), dtype = tf.float32, initializer = tf.truncated_normal_initializer)
             B0 = tf.get_variable('b0', shape = (M*M*N,), dtype = tf.float32, initializer = tf.constant_initializer(0.0))
@@ -520,39 +483,9 @@ class StackGAN:
                                                 options = run_opts)
                             print('Discriminator Loss: ' + str(dLoss))
                             print('Generator Loss: ' + str(gLoss))
-                        #Training the Discriminator.
-                        # for k in range(1):
-                        #     train_data = feeder.curr_example()
-                        #     train_image = train_data[0]
-                        #     txt = train_data[1]
-                        #     l_r = 1e-4
                 if save:
-                    # save_vars = []
-                    # save_var_names = []
-                    # save_vars.extend(d_vars)
-                    # save_vars.extend(g_vars)
-                    # print([var.name for var in global_vars])
-                    # print()
-                    # print([var.name for var in init_vars])
-                    # print()
-                    # for var in global_vars:
-                    #     if var.name in self.stage_1_vars and var.name not in save_var_names:
-                    #         save_vars.append(var)
-                    #         save_var_names.append(var.name)
-                    #     else:
-                    #         print(var.name)
-                    # print(len(save_vars))
-                    # for var in init_vars:
-                    #     if var.name not in save_var_names:
-                    #         save_vars.append(var)
-                    #         save_var_names.append(var.name)
-                    #     else:
-                    #         print(var.name)
-                    # print()
-                    # print([var.name for var in save_vars])
                     saver_1 = tf.train.Saver()
                     saver_1.save(sess, "./ckpts/model.ckpt")
-
 
     #Need this function because OpenCV decodes in BGR order, not RGB
     def flip_channel_order(self, np_img, img_dim = 256):
@@ -586,28 +519,58 @@ class StackGAN:
         with tf.Session() as sess:
             saver = tf.train.import_meta_graph('ckpts/model.ckpt.meta')
             saver.restore(sess, tf.train.latest_checkpoint('ckpts'))
-            names = []
-            for v in tf.get_default_graph().get_collection('variables'):
-                names.append(v.name)
-            print(names)
+            # names = []
+            # for v in tf.get_default_graph().get_collection('variables'):
+            #     names.append(v.name)
+            # print(names)
             d, np_img = sess.run([d, tensor_img])
             print(d)
             imwrite("output_image.jpg", self.flip_channel_order(np_img))
 
-    def predict_lowres(self, input_text):
+    def predict_lowres(self, input_text, exists = False):
         tf.reset_default_graph()
-        init_img = self.generator_1(input_text, r = tf.AUTO_REUSE)
-        d = self.discriminator_1(init_img, input_text, is_train = True, r = tf.AUTO_REUSE)
-        tensor_img = tf.squeeze(tf.cast(init_img, dtype = tf.uint8))
+        init_img = self.generator_1(input_text)
+        d = self.discriminator_1(init_img, input_text, is_train = True)
+        tensor_img = tf.squeeze(init_img)
         with tf.Session() as sess:
-            saver = tf.train.import_meta_graph('ckpts/model.ckpt.meta')
+
+            saver = tf.train.Saver()
+            #saver = tf.train.import_meta_graph('ckpts/model.ckpt.meta')
+            #print(len(tf.get_default_graph().get_collection('variables')))
             saver.restore(sess, tf.train.latest_checkpoint('ckpts'))
-            names = []
-            for v in tf.get_default_graph().get_collection('variables'):
-                names.append(v.name)
-            print(names)
-            # init_img = self.generator_1(input_text, r = tf.AUTO_REUSE)
+            #print(len(tf.get_default_graph().get_collection('variables')))
+
+            #print(len(sess.run(tf.report_uninitialized_variables())))
+
+            a = sess.run('g1/gen1:0')
+            with open('test.txt', 'w') as f:
+                f.write(str(a))
+            # if exists:
+            #     old = ''
+            #     lst = []
+            #     with open('test.txt') as f:
+            #         old = f.read().split(',')
+            #     for i in range(len(a)):
+            #         for j in range(len(a[0])):
+            #             lst.append(a[i][j])
+            #     for i in range(len(lst)):
+            #         if lst[i] != old[i]:
+            #             print(str(lst[i]) + ': ' + str(old[i]))
+            #             print('Different!!!!!')
+            #
+            # for i in range(len(a)):
+            #     for j in range(len(a[0])):
+            #         with open('test.txt', 'w') as f:
+            #             f.write(str(a[i][j]) + ',')
+
+            # for var in l1:
+            #     if var not in l2:
+            #         print(var)
+            # init_img = self.generator_1(input_text, tf.variable_scope('gen1', reuse = tf.AUTO_REUSE))
             # tensor_img = tf.squeeze(tf.cast(init_img, dtype = tf.uint8))
+            # print(len(sess.run(tf.report_uninitialized_variables())))
             d, np_img = sess.run([d, tensor_img])
-            print(d)
+            print(d[0][0])
+            with open('img.txt', 'w') as f:
+                f.write(str(np_img))
             imwrite("output_image_lowres.jpg", self.flip_channel_order(np_img, img_dim = 64))
