@@ -13,7 +13,7 @@ class StackGAN:
         self.caption_arr = pr.construct_caption_arr(pr.num_to_attr('data/LabelledBirds/attributes/attributes.txt'), 'data/LabelledBirds/attributes/image_attribute_labels.txt')
         self.stage_1_vars = []
         self.text2vec = enc.load_model()
-        self.batch_size = 64
+        self.batch_size = 28
 
     def encode(self, text):
         return self.text2vec.predict(enc.tokenize(text))
@@ -180,11 +180,7 @@ class StackGAN:
 
         FR = tf.reduce_mean(fake_result)
 
-        random_real = 0.7 + (uniform(0, 1)*0.5)
-        random_fake = uniform(0, 0.3)
-
-        # dis_loss = tf.log(1 - RRRC) + tf.log(FR) + tf.log(RRFC)
-        # gen_loss = tf.log(1 - FR)
+        # Added noise to the labels to improve training and establish a proper equilibrium
         dis_loss = tf.nn.sigmoid_cross_entropy_with_logits(logits = rrrc_logits, labels = tf.constant(np.array([[0.7 + (uniform(0, 1)*0.5) for _ in range(batch_size)]]).T, dtype = tf.float32)) + tf.nn.sigmoid_cross_entropy_with_logits(logits = rrfc_logits, labels = tf.constant(np.array([[uniform(0, 0.3) for _ in range(batch_size)]]).T, dtype = tf.float32)) +\
         tf.nn.sigmoid_cross_entropy_with_logits(logits = fr_logits, labels = tf.constant(np.array([[uniform(0, 0.3) for _ in range(batch_size)]]).T, dtype = tf.float32))
         gen_loss = tf.nn.sigmoid_cross_entropy_with_logits(logits = fr_logits, labels = tf.constant(np.array([[0.7 + (uniform(0, 1)*0.5) for _ in range(batch_size)]]).T, dtype = tf.float32))
@@ -202,13 +198,12 @@ class StackGAN:
 
         with tf.Session() as sess:
             run_opts = tf.RunOptions(report_tensor_allocations_upon_oom = True)
-            batch_size = 28
             num_of_imgs = 11788
             num_epochs = 2 #adjust if necessary
-            sess.run(tf.local_variables_initializer(), options = run_opts)
-            sess.run(tf.global_variables_initializer(), options = run_opts)
-            # saver = tf.train.Saver()
-            # saver.restore(sess, tf.train.latest_checkpoint('ckpts'))
+            # sess.run(tf.local_variables_initializer(), options = run_opts)
+            # sess.run(tf.global_variables_initializer(), options = run_opts)
+            saver = tf.train.Saver()
+            saver.restore(sess, tf.train.latest_checkpoint('ckpts'))
 
             print('Start Training::: ')
             for i in range(num_epochs):
