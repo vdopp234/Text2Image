@@ -107,19 +107,23 @@ def is_num(str):
     return True
 
 class FeedExamples:
-    def __init__(self):
+    def __init__(self, shrink_imgs = True):
         self.curr_dir = 'data/LabelledBirds/images'
         self.curr_dir_num = 0
         self.curr_num_in_dir = -1
         self.caption_map = construct_caption_arr(num_to_attr('data/LabelledBirds/attributes/attributes.txt'), 'data/LabelledBirds/attributes/image_attribute_labels.txt')
         self.dir_lst = os.listdir(path = self.curr_dir)
         self.img_to_id = img_to_id('data/LabelledBirds/images.txt')
+        self.shrink_imgs = shrink_imgs
 
     def next_batch(self, batch_size, encode, img_size):
         ret_caps = None
         ret_imgs = None
         lst = [self.next_example() for _ in range(batch_size)]
-        imgs = [tf.reshape(tf.image.resize_images(tf.cast(tf.image.decode_jpeg(tf.read_file(x[0]), channels = 3), dtype = tf.float32), (img_size, img_size)), shape = (1, 64, 64, 3)) for x in lst]
+        if self.shrink_imgs:
+            imgs = [tf.reshape(tf.image.resize_images(tf.cast(tf.image.decode_jpeg(tf.read_file(x[0]), channels = 3), dtype = tf.float32), (img_size, img_size)), shape = (1, 64, 64, 3)) for x in lst]
+        else:
+            imgs = [tf.reshape(tf.cast(tf.image.decode_jpeg(tf.read_file(x[0]), channels = 3), dtype = tf.float32), shape = (1, img_size, img_size, 3)) for x in lst]
         caps = [encode(x[1]) for x in lst]
         h = tf.concat(imgs, axis = 0)
         ret_caps = np.concatenate(caps, axis = 0)

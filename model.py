@@ -20,7 +20,7 @@ class StackGAN:
     #Stage 1 GAN
     def generator_1(self, text_input, is_train = True):
         with tf.variable_scope('g1', reuse = tf.AUTO_REUSE) as scope:
-            print(text_input.shape)
+            # print(text_input.shape)
             noise_vec = tf.random_normal(shape = text_input.shape)
             input = tf.concat([text_input, noise_vec], 1)
 
@@ -52,11 +52,13 @@ class StackGAN:
             act4 = tf.nn.tanh(conv4)
 
             if is_train:
-                return tf.squeeze(act4) #should be a tensor of shape (output_dim, output_dim, 3)
-            return tf.squeeze(conv4)
+                return act4
+                # return tf.squeeze(act4) #should be a tensor of shape (output_dim, output_dim, 3)
+            #return tf.squeeze(conv4)
+            return conv4
 
     #Input is your image. Discriminator is only used during training, so you add the input when training
-    def discriminator_1(self, input_img, encoded_txt, is_train = True):
+    def discriminator_1(self, input_img, encoded_txt, is_train = True, batch_size = 28):
         #Shrink to lower dimension
         with tf.variable_scope('d1', reuse = tf.AUTO_REUSE) as scope:
             #Reshape/Resize Text Embedding
@@ -68,27 +70,15 @@ class StackGAN:
             Y0 = tf.nn.leaky_relu(tf.add(tf.matmul(encoded_txt, W0), B0))
 
             #Expand to create MxMxN 3d tensor
-            mod_encoding = tf.reshape(Y0, shape = (self.batch_size, M, M, N))
+            mod_encoding = tf.reshape(Y0, shape = (batch_size, M, M, N))
 
             input_conv1 = tf.layers.conv2d(tf.to_float(input_img), int(N), kernel_size = [5, 5], strides = [2, 2], padding = 'SAME', kernel_initializer = tf.truncated_normal_initializer(stddev = .02), name = 'dis3')
             input_bn1 = tf.contrib.layers.batch_norm(input_conv1, is_training = is_train, epsilon=1e-5, decay = 0.9, updates_collections=None)
             input_act1 = tf.nn.leaky_relu(input_bn1, alpha = .01)
 
-                # input_conv2 = tf.layers.conv2d(input_act1, int(N/4), kernel_size = [5, 5], strides = [2, 2], padding = 'SAME', kernel_initializer = tf.truncated_normal_initializer(stddev = .02), name = 'dis31')
-                # input_bn2 = tf.contrib.layers.batch_norm(input_conv2, is_training = is_train, epsilon=1e-5, decay = 0.9, updates_collections=None)
-                # input_act2 = tf.nn.leaky_relu(input_bn2)
-                #
-                # input_conv3 = tf.layers.conv2d(input_act2, int(N/2), kernel_size = [5, 5], strides = [2, 2], padding = 'SAME', kernel_initializer = tf.truncated_normal_initializer(stddev = .02), name = 'dis32')
-                # input_bn3 = tf.contrib.layers.batch_norm(input_conv3, is_training = is_train, epsilon=1e-5, decay = 0.9, updates_collections=None)
-                # input_act3 = tf.nn.leaky_relu(input_bn3)
-                #
-                # input_conv4 = tf.layers.conv2d(input_act3, int(N), kernel_size = [5, 5], strides = [2, 2], padding = 'SAME', kernel_initializer = tf.truncated_normal_initializer(stddev = .02), name = 'dis33')
-                # input_bn4 = tf.contrib.layers.batch_norm(input_conv4, is_training = is_train, epsilon=1e-5, decay = 0.9, updates_collections=None)
-                # input_act4 = tf.nn.leaky_relu(input_bn4)
-
-                #Concatenating img and text tensors, then preform convolutions
-            input_concat = tf.concat([mod_encoding, tf.squeeze(input_act1)], 2)
-            #print(input_concat.shape)
+            #Concatenating img and text tensors, then preform convolutions
+            input_concat = tf.concat([mod_encoding, input_act1], 2)
+            print(input_concat.shape)
 
             # input_concat = tf.reshape(input_concat, shape = lst)
             conv1 = tf.layers.conv2d(input_concat, 32, kernel_size = [5, 5], strides = [2, 2], padding = 'SAME', kernel_initializer = tf.truncated_normal_initializer(stddev = .02), name = 'conv1dis4')
@@ -108,7 +98,7 @@ class StackGAN:
             act4 = tf.nn.leaky_relu(bn4, alpha = .01)
 
                 #Feed Forward Network
-            dim  = int(np.prod(act4.get_shape()[1:]))
+            dim = int(np.prod(act4.get_shape()[1:]))
             h = tf.reshape(act4, shape = [-1, dim])
 
             W1 = tf.get_variable(shape = [dim, 128], dtype = tf.float32, name = 'dis7')
@@ -199,11 +189,11 @@ class StackGAN:
         with tf.Session() as sess:
             run_opts = tf.RunOptions(report_tensor_allocations_upon_oom = True)
             num_of_imgs = 11788
-            num_epochs = 2 #adjust if necessary
-            # sess.run(tf.local_variables_initializer(), options = run_opts)
-            # sess.run(tf.global_variables_initializer(), options = run_opts)
-            saver = tf.train.Saver()
-            saver.restore(sess, tf.train.latest_checkpoint('ckpts'))
+            num_epochs = 1000 #adjust if necessary
+            sess.run(tf.local_variables_initializer(), options = run_opts)
+            sess.run(tf.global_variables_initializer(), options = run_opts)
+            # saver = tf.train.Saver()
+            # saver.restore(sess, tf.train.latest_checkpoint('ckpts'))
 
             print('Start Training::: ')
             for i in range(num_epochs):
@@ -217,6 +207,8 @@ class StackGAN:
                 for _ in range(num_of_batches):
                     input_imgs, input_caps = feeder.next_batch(batch_size, self.encode, 64)
                     l_r = 2e-4 * (0.5 ** (i//100))
+                    if l_r == 0.0:
+                        print('Not training, fix Learning Rate')
                     dLoss, FR_dis, op = sess.run([dis_loss, FR, trainer_dis], feed_dict = {text_input : input_caps, images : input_imgs, lr : l_r})
                     gLoss, op = sess.run([gen_loss, trainer_gen], feed_dict = {text_input : input_caps, images : input_imgs, lr : l_r})
                     print('Generator Loss: ' + str(gLoss))
@@ -229,26 +221,22 @@ class StackGAN:
                     saver.save(sess, "./ckpts/model.ckpt")
     #Stage 2 GAN
 
-    def generator_2(self, text_input, is_train = True, r = tf.AUTO_REUSE):
+    def generator_2(self, text_encoding, is_train = True, r = tf.AUTO_REUSE):
         #Upsample text embedding
         #Play around with these values. Likely, larger the value, more detail is retained but slower the training is
-        encoder_ = enc.load_model()
         with tf.variable_scope('g2', reuse = r) as scope:
-            init_embedding = encoder_.predict(enc.tokenize(text_input))
             N, M = 32, 16
 
-            W0 = tf.get_variable('w0', shape = (init_embedding.shape[1], M*M*N), dtype = tf.float32, initializer = tf.truncated_normal_initializer)
+            W0 = tf.get_variable('w0', shape = (text_encoding.shape[1], M*M*N), dtype = tf.float32, initializer = tf.truncated_normal_initializer)
             B0 = tf.get_variable('b0', shape = (M*M*N,), dtype = tf.float32, initializer = tf.constant_initializer(0.0))
-            Y0 = tf.nn.leaky_relu(tf.add(tf.matmul(init_embedding, W0), B0), alpha = .01)
+            Y0 = tf.nn.leaky_relu(tf.add(tf.matmul(text_encoding, W0), B0), alpha = .01)
 
             #Expand to create MxMxN 3d tensor
             mod_embedding = tf.reshape(Y0, shape = (M, M, N))
 
             #Downsample gan1 image
-            gan1img = self.generator_1(text_input)
-            lst = [1]
-            lst.extend(gan1img.shape)
-            input_img = tf.reshape(gan1img, shape = lst)
+            gan1img = self.generator_1(text_encoding)
+            input_img = tf.reshape(gan1img, shape = (1, 64, 64, 3))
 
             input_conv1 = tf.layers.conv2d(input_img, N, kernel_size = [5, 5], strides = [2, 2], padding = 'SAME', kernel_initializer = tf.truncated_normal_initializer(stddev = .02))
             input_bn1 = tf.contrib.layers.batch_norm(input_conv1, is_training = is_train, epsilon=1e-5, decay = 0.9, updates_collections=None)
@@ -282,10 +270,9 @@ class StackGAN:
 
             return act4
 
-    def discriminator_2(self, input_img, input_txt, is_train = True, r = tf.AUTO_REUSE):
+    def discriminator_2(self, input_img, text_encoding, is_train = True, r = tf.AUTO_REUSE):
         with tf.variable_scope('d2', reuse = r) as scope:
             output_dim = 1
-            init_embedding = enc.load_model().predict(enc.tokenize(input_txt)) #Refer back to blog post if this doesn't work
             N, M = 16, 16 #Play around with these values. Likely, larger the value, more detail is retained but OOM Error may be thrown.
             W0 = tf.get_variable('w0', shape = (init_embedding.shape[1], M*M*N), dtype = tf.float32, initializer = tf.truncated_normal_initializer)
             B0 = tf.get_variable('b0', shape = (M*M*N,), dtype = tf.float32, initializer = tf.constant_initializer(0.0))
@@ -336,10 +323,6 @@ class StackGAN:
             bn3 = tf.contrib.layers.batch_norm(conv3, is_training = is_train, epsilon = 1e-5, decay = 0.9, updates_collections = None)
             act3 = tf.nn.leaky_relu(bn3, alpha = .01)
 
-            # conv4 = tf.layers.conv2D(act3, 256, kernel_size = [5, 5], strides = (2,2), padding = 'SAME', kernel_initializer = tf.truncated_normal_initializer(stddev = .02), name = 'conv4')
-            # bn4 = tf.contrib.layers.batch_norm(conv4, decay = 0.9, epsilon = 1e-5, is_training = is_train, updates_collections = None)
-            # act4 = tf.nn.leaky_relu(bn4)
-
             #Feed Forward Network
             dim  = int(np.prod(act3.get_shape()[1:]))#1: because of batch size
             h = tf.reshape(act3, shape = [-1, dim])
@@ -357,7 +340,7 @@ class StackGAN:
 
 
     def train_2(self, save = True):
-        batch_size = 28
+        batch_size = self.batch_size
         text_input = tf.placeholder(dtype = tf.float32)
         images = tf.placeholder(dtype = tf.float32)
         lr = tf.placeholder(dtype = tf.float32)
@@ -366,53 +349,30 @@ class StackGAN:
             input_caps = text_input
             input_imgs = images
         else:
-            imgs = []
-            caps = []
-            feeder = pr.FeedExamples()
-            for k in range(batch_size):
-                print('one')
-                train_data = feeder.next_example()
-                train_image = train_data[0]
-                txt = train_data[1]
-                imgs.append(train_image)
-                caps.append(txt)
-            input_imgs = None
-            input_caps = None
-            for i in range(batch_size):
-                path = tf.read_file(imgs[i])
-                img = tf.cast(tf.image.decode_jpeg(path, channels = 3), dtype = tf.float32)
-                resized_img = tf.image.resize_images(img, (64, 64))
-                sess = tf.InteractiveSession()
-                real_image = resized_img.eval()
-                sess.close()
-                new_shape = [1, 64, 64, 3]
-                real_image = np.reshape(real_image, new_shape)
-
-                if input_imgs is None:
-                    input_imgs = np.array(real_image)
-                else:
-                    input_imgs = np.concatenate((input_imgs, real_image), axis = 0)
-
-                if input_caps is None:
-                    # print(self.encode(caps[i]).shape)
-                    input_caps = np.array(self.encode(caps[i]))
-                else:
-                    input_caps = np.vstack((input_caps, self.encode(caps[i])))
+            feeder = pr.FeedExamples(shrink_imgs = False)
+            input_imgs, input_caps = feeder.next_batch(batch_size = 28, encode = self.encode, img_size = 256)
 
         batch = tf.nn.tanh(input_imgs)
         fake_images = self.generator_2(input_caps)
-        print('First')
-        fake_result = self.discriminator_2(fake_images, input_caps)
-        print('Second')
-        real_result_fake_caption = self.discriminator_2(batch, tf.random_shuffle(input_caps))
-        print('Third')
-        real_result_real_caption = self.discriminator_2(batch, input_caps)
+        # print(input_caps.shape)
+        # print(input_imgs.shape)
 
-        RRRC = tf.reduce_mean(real_result_real_caption)
-        RRFC = tf.reduce_mean(real_result_fake_caption)
+        print('First')
+        fake_result, fr_logits = self.discriminator_1(fake_images, input_caps)
+        print('Second')
+        real_result_fake_caption, rrfc_logits = self.discriminator_1(batch, tf.random_shuffle(input_caps))
+        print('Third')
+        real_result_real_caption, rrrc_logits = self.discriminator_1(batch, input_caps)
+
         FR = tf.reduce_mean(fake_result)
-        dis_loss = -1*(tf.log(RRRC) + tf.log(1 - FR) + tf.log(1 - RRFC))
-        gen_loss = -1*tf.log(FR)
+
+        # Added noise to the labels to improve training and establish a proper equilibrium
+        dis_loss = tf.nn.sigmoid_cross_entropy_with_logits(logits = rrrc_logits, labels = tf.constant(np.array([[0.7 + (uniform(0, 1)*0.5) for _ in range(batch_size)]]).T, dtype = tf.float32)) + tf.nn.sigmoid_cross_entropy_with_logits(logits = rrfc_logits, labels = tf.constant(np.array([[uniform(0, 0.3) for _ in range(batch_size)]]).T, dtype = tf.float32)) +\
+        tf.nn.sigmoid_cross_entropy_with_logits(logits = fr_logits, labels = tf.constant(np.array([[uniform(0, 0.3) for _ in range(batch_size)]]).T, dtype = tf.float32))
+        gen_loss = tf.nn.sigmoid_cross_entropy_with_logits(logits = fr_logits, labels = tf.constant(np.array([[0.7 + (uniform(0, 1)*0.5) for _ in range(batch_size)]]).T, dtype = tf.float32))
+
+        dis_loss = tf.reduce_mean(dis_loss)
+        gen_loss = tf.reduce_mean(gen_loss)
 
         t_vars = tf.trainable_variables()
         d_vars = [var for var in t_vars if 'd2' in var.name]
@@ -424,14 +384,12 @@ class StackGAN:
 
         with tf.Session() as sess:
             run_opts = tf.RunOptions(report_tensor_allocations_upon_oom = True)
-            batch_size = 28
             num_of_imgs = 11788
-            num_epochs = 2 #adjust if necessary
-            saver = tf.train.Saver()
-            saver.restore(sess, tf.train.latest_checkpoint('ckpts'))
+            num_epochs = 1000 #adjust if necessary
+            sess.run(tf.local_variables_initializer(), options = run_opts)
+            sess.run(tf.global_variables_initializer(), options = run_opts)
             # saver = tf.train.Saver()
-            # saver.restore(sess, tf.train.latest_checkpoint('ckpts2'))
-
+            # saver.restore(sess, tf.train.latest_checkpoint('ckpts'))
 
             print('Start Training::: ')
             for i in range(num_epochs):
@@ -443,8 +401,10 @@ class StackGAN:
                 feeder = pr.FeedExamples()
                 num_of_batches = int(num_of_imgs/batch_size)
                 for _ in range(num_of_batches):
-                    input_imgs, input_caps = feeder.next_batch(batch_size, self.encode, 256)
+                    input_imgs, input_caps = feeder.next_batch(batch_size, self.encode, 64)
                     l_r = 2e-4 * (0.5 ** (i//100))
+                    if l_r == 0.0:
+                        print('Not training, fix Learning Rate')
                     dLoss, FR_dis, op = sess.run([dis_loss, FR, trainer_dis], feed_dict = {text_input : input_caps, images : input_imgs, lr : l_r})
                     gLoss, op = sess.run([gen_loss, trainer_gen], feed_dict = {text_input : input_caps, images : input_imgs, lr : l_r})
                     print('Generator Loss: ' + str(gLoss))
@@ -454,7 +414,7 @@ class StackGAN:
                 if save:
                     print('Saving:')
                     saver = tf.train.Saver()
-                    saver.save(sess, "./ckpts2/model.ckpt")
+                    saver.save(sess, "./ckpts/model.ckpt")
 
     def normalize_image(self, init_img):
         new = np.reshape(init_img, np.prod(init_img.shape))
@@ -504,11 +464,12 @@ class StackGAN:
 
     def predict_lowres(self, input_text, exists = False):
         tf.reset_default_graph()
-        init_img = self.generator_1(input_text, is_train = False)
-        d = self.discriminator_1(init_img, input_text, is_train = False)
+        text_encoding = self.encode(input_text)
+        init_img = self.generator_1(text_encoding, is_train = False)
+        print()
+        d = self.discriminator_1(init_img, text_encoding, is_train = False, batch_size = 1)
         tensor_img = tf.squeeze(init_img)
         with tf.Session() as sess:
-
             saver = tf.train.Saver()
             saver.restore(sess, tf.train.latest_checkpoint('ckpts'))
             a = sess.run('g1/gen1:0')
