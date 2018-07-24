@@ -6,7 +6,7 @@ from cv2 import imwrite
 from tensorflow.python.framework import ops
 from random import uniform
 
-class StackGAN:
+class Model:
     def __init__(self, output_dim):
         #self.model_session = tf.Session(config = tf.ConfigProto(gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction = 0.9)))
         self.output_dim = output_dim #Assumes we are attempting to generate a square image
