@@ -263,19 +263,7 @@ class Model:
         return np_img1
 
 
-    def predict(self, input_text):
-        tf.reset_default_graph()
-        init_img = self.generator_2(input_text)
-        d = self.discriminator_2(init_img, input_text, is_train = False).eval()
-        tensor_img = tf.squeeze(tf.cast(init_img, dtype = tf.uint8))
-        with tf.Session() as sess:
-            saver = tf.train.Saver()
-            saver.restore(sess, tf.train.latest_checkpoint('ckpts'))
-            d, np_img = sess.run([d, tensor_img])
-            print(d)
-            imwrite("output_image.jpg", self.flip_channel_order(np_img))
-
-    def predict_lowres(self, input_text, exists = False):
+    def predict(self, input_text, exists = False):
         tf.reset_default_graph()
         text_encoding = self.encode(input_text)
         init_img = self.generator_1(text_encoding, is_train = False)
