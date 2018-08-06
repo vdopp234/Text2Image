@@ -61,8 +61,6 @@ class Model:
 
             if is_train:
                 return act6
-                # return tf.squeeze(act4) #should be a tensor of shape (output_dim, output_dim, 3)
-            #return tf.squeeze(conv4)
             return conv6
 
     #Input is your image. Discriminator is only used during training, so you add the input when training
