@@ -1,6 +1,6 @@
-from model import StackGAN
+from model import Model
 
-model = StackGAN(256)
+model = Model(256)
 
 #model.train_1()
 #model.train_2()

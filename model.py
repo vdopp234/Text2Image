@@ -6,7 +6,7 @@ from cv2 import imwrite
 from tensorflow.python.framework import ops
 from random import uniform
 
-class StackGAN:
+class Model:
     def __init__(self, output_dim):
         #self.model_session = tf.Session(config = tf.ConfigProto(gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction = 0.9)))
         self.output_dim = output_dim #Assumes we are attempting to generate a square image
@@ -17,7 +17,6 @@ class StackGAN:
 
     def encode(self, text):
         return self.text2vec.predict(enc.tokenize(text))
-    #Stage 1 GAN
     def generator_1(self, text_input, is_train = True):
         with tf.variable_scope('g1', reuse = tf.AUTO_REUSE) as scope:
             # print(text_input.shape)
@@ -61,10 +60,10 @@ class StackGAN:
 
 
             if is_train:
-                return act4
+                return act6
                 # return tf.squeeze(act4) #should be a tensor of shape (output_dim, output_dim, 3)
             #return tf.squeeze(conv4)
-            return conv4
+            return conv6
 
     #Input is your image. Discriminator is only used during training, so you add the input when training
     def discriminator_1(self, input_img, encoded_txt, is_train = True, batch_size = 28):
@@ -145,11 +144,11 @@ class StackGAN:
             for i in range(batch_size):
                 path = tf.read_file(imgs[i])
                 img = tf.cast(tf.image.decode_jpeg(path, channels = 3), dtype = tf.float32)
-                resized_img = tf.image.resize_images(img, (64, 64))
+                resized_img = tf.image.resize_images(img, (256, 256))
                 sess = tf.InteractiveSession()
                 real_image = resized_img.eval()
                 sess.close()
-                new_shape = [1, 64, 64, 3]
+                new_shape = [1, 256, 256, 3]
                 real_image = np.reshape(real_image, new_shape)
                 # print(real_image.shape)
                 if input_imgs is None:
@@ -214,10 +213,10 @@ class StackGAN:
                 feeder = pr.FeedExamples()
                 num_of_batches = int(num_of_imgs/batch_size)
                 for _ in range(num_of_batches):
-                    input_imgs, input_caps = feeder.next_batch(batch_size, self.encode, 64)
+                    input_imgs, input_caps = feeder.next_batch(batch_size, self.encode, 256)
                     l_r = 2e-4 * (0.5 ** (i//100))
-                    if l_r == 0.0:
-                        print('Not training, fix Learning Rate')
+                    # if l_r == 0.0:
+                    #     print('Not training, fix Learning Rate')
                     dLoss, FR_dis, op = sess.run([dis_loss, FR, trainer_dis], feed_dict = {text_input : input_caps, images : input_imgs, lr : l_r})
                     gLoss, op = sess.run([gen_loss, trainer_gen], feed_dict = {text_input : input_caps, images : input_imgs, lr : l_r})
                     print('Generator Loss: ' + str(gLoss))
@@ -239,6 +238,7 @@ class StackGAN:
                 for k in range(len(init_img[0][0])):
                     out_img[i][j][k] = (init_img[i][j][k] - m)/s
         return out_img
+
     #Need this function because OpenCV decodes in BGR order, not RGB
     def flip_channel_order(self, np_img, img_dim = 256):
         one = np.zeros(shape = (img_dim, img_dim, 1))
