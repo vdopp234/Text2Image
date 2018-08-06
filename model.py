@@ -17,7 +17,6 @@ class Model:
 
     def encode(self, text):
         return self.text2vec.predict(enc.tokenize(text))
-    #Stage 1 GAN
     def generator_1(self, text_input, is_train = True):
         with tf.variable_scope('g1', reuse = tf.AUTO_REUSE) as scope:
             # print(text_input.shape)
@@ -219,12 +218,11 @@ class Model:
                     print('Saving:')
                     saver = tf.train.Saver()
                     saver.save(sess, "./ckpts/model.ckpt")
-    #Stage 2 GAN
 
-    def generator_2(self, text_encoding, is_train = True, r = tf.AUTO_REUSE):
+    def generator_2(self, text_encoding, is_train = True):
         #Upsample text embedding
         #Play around with these values. Likely, larger the value, more detail is retained but slower the training is
-        with tf.variable_scope('g2', reuse = r) as scope:
+        with tf.variable_scope('g2', reuse = tf.AUTO_REUSE) as scope:
             N, M = 32, 16
 
             W0 = tf.get_variable('w0', shape = (text_encoding.shape[1], M*M*N), dtype = tf.float32, initializer = tf.truncated_normal_initializer)
@@ -270,8 +268,8 @@ class Model:
 
             return act4
 
-    def discriminator_2(self, input_img, text_encoding, is_train = True, r = tf.AUTO_REUSE):
-        with tf.variable_scope('d2', reuse = r) as scope:
+    def discriminator_2(self, input_img, text_encoding, is_train = True):
+        with tf.variable_scope('d2', reuse = tf.AUTO_REUSE) as scope:
             output_dim = 1
             N, M = 16, 16 #Play around with these values. Likely, larger the value, more detail is retained but OOM Error may be thrown.
             W0 = tf.get_variable('w0', shape = (init_embedding.shape[1], M*M*N), dtype = tf.float32, initializer = tf.truncated_normal_initializer)
