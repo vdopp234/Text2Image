@@ -119,49 +119,13 @@ class Model:
     def train_1(self, save = True):
         #tf.reset_default_graph()
         batch_size = self.batch_size
-        text_input = tf.placeholder(dtype = tf.float32)
-        images = tf.placeholder(dtype = tf.float32)
-        lr = tf.placeholder(dtype = tf.float32)
+        text_input = tf.placeholder(shape = (100,), dtype = tf.float32)
+        images = tf.placeholder(shape = (batch_size, None, None, 3), dtype = tf.float32)
+        lr = tf.placeholder(shape = (1,), dtype = tf.float32)
 
-        if text_input.shape:
-            input_caps = text_input
-            input_imgs = images
-        else:
-            imgs = []
-            caps = []
-            feeder = pr.FeedExamples()
-            for k in range(batch_size):
-                # print('one')
-                train_data = feeder.next_example()
-                train_image = train_data[0]
-                txt = train_data[1]
-                imgs.append(train_image)
-                caps.append(txt)
-            input_imgs = None
-            input_caps = None
-            for i in range(batch_size):
-                path = tf.read_file(imgs[i])
-                img = tf.cast(tf.image.decode_jpeg(path, channels = 3), dtype = tf.float32)
-                resized_img = tf.image.resize_images(img, (256, 256))
-                sess = tf.InteractiveSession()
-                real_image = resized_img.eval()
-                sess.close()
-                new_shape = [1, 256, 256, 3]
-                real_image = np.reshape(real_image, new_shape)
-                # print(real_image.shape)
-                if input_imgs is None:
-                    input_imgs = np.array(real_image)
-                else:
-                    input_imgs = np.concatenate((input_imgs, real_image), axis = 0)
-                    # print(input_imgs.shape)
-
-                if input_caps is None:
-                    input_caps = np.array(self.encode(caps[i]))
-                    print(input_caps.shape)
-                else:
-                    input_caps = np.vstack((input_caps, self.encode(caps[i])))
-                    print(input_caps.shape)
-
+        input_caps = text_input
+        input_imgs = images
+        
         batch = tf.nn.tanh(input_imgs)
         fake_images = self.generator_1(input_caps)
         # print(input_caps.shape)
